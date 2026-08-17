@@ -67,6 +67,9 @@ export async function GET(request: Request) {
             min: p.sectionTime,
             way: p.way || "",
             door: p.door || "",
+            // 실제 시간표 조회용: 승차역 ODsay ID + 상행(1)/하행(2)
+            stationID: p.startID ?? null,
+            wayCode: p.wayCode ?? null,
             stations: (p.passStopList?.stations || []).map((s: any) => s.stationName),
           };
         }

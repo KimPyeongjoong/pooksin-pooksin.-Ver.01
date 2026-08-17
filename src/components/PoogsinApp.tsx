@@ -30,6 +30,18 @@ type RouteLeg = {
   type: string; line?: string; color?: string; start?: string; end?: string;
   stationCount?: number; min?: number; way?: string; door?: string; distance?: number;
   stations?: string[];
+  stationID?: number | null; // 승차역 ODsay ID (실제 시간표 조회용)
+  wayCode?: number | null; // 1=상행/외선, 2=하행/내선
+};
+
+// 출발역의 실제 시간표 (/api/timetable)
+type Departure = { min: number; dest: string };
+type Timetable = {
+  line?: string;
+  wayLabel?: string;
+  dayType?: "weekday" | "sat" | "sun";
+  departures: Departure[];
+  error?: string;
 };
 type RouteData = {
   from?: string; to?: string; totalTime?: number; payment?: number;
@@ -67,7 +79,14 @@ export default function PoogsinApp() {
   const [routeErr, setRouteErr] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeTab, setRouteTab] = useState<RouteTab>("time");
-  const [departMin, setDepartMin] = useState<number | null>(null); // 선택한 발차 시각(분)
+  const [departMin, setDepartMin] = useState<number | null>(null); // 시간표가 없을 때만 쓰는 대체 발차 시각(분)
+
+  // 출발역 실제 시간표
+  const [timetable, setTimetable] = useState<Timetable | null>(null);
+  const [ttLoading, setTtLoading] = useState(false);
+  const [depIdx, setDepIdx] = useState<number | null>(null); // 시간표에서 고른 열차 번호
+  const [pickedByUser, setPickedByUser] = useState(false); // 사용자가 이전/다음을 눌렀는지
+  const [nowMin, setNowMin] = useState(() => nowMinutes()); // 30초마다 갱신되는 현재 시각
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -169,6 +188,86 @@ export default function PoogsinApp() {
 
   // 탭 기준으로 고른 현재 경로
   const route = pickRoute(routeOptions, routeTab);
+
+  // 이 경로에서 처음 타는 지하철 구간 (= 시간표를 봐야 하는 역/방향)
+  const boardLeg = route?.legs.find((l) => l.type === "subway") ?? null;
+  const boardStationID = boardLeg?.stationID ?? null;
+  const boardWayCode = boardLeg?.wayCode ?? null;
+  // 열차를 타기 전까지 걸리는 시간(도보 등) — 발차 시각에서 거꾸로 빼줍니다.
+  const preBoardMin = (() => {
+    if (!route) return 0;
+    let sum = 0;
+    for (const l of route.legs) {
+      if (l.type === "subway") break;
+      sum += l.min || 0;
+    }
+    return sum;
+  })();
+
+  // 시계: 30초마다 현재 시각을 갱신 (화면을 켜둬도 "다음 열차"가 지나간 열차가 되지 않게)
+  useEffect(() => {
+    setNowMin(nowMinutes()); // 화면이 뜨는 순간 한 번 맞춰줍니다
+    const id = window.setInterval(() => setNowMin(nowMinutes()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // 출발역의 실제 시간표 불러오기
+  useEffect(() => {
+    if (!boardStationID) {
+      setTimetable(null);
+      setDepIdx(null);
+      return;
+    }
+    setTtLoading(true);
+    setTimetable(null);
+    setDepIdx(null);
+    setPickedByUser(false);
+    fetch(`/api/timetable?stationID=${boardStationID}&wayCode=${boardWayCode ?? 1}`)
+      .then((r) => r.json())
+      .then((d: Timetable) => setTimetable(d?.departures?.length ? d : null))
+      .catch(() => setTimetable(null))
+      .finally(() => setTtLoading(false));
+  }, [boardStationID, boardWayCode]);
+
+  // 지금 출발해서 탈 수 있는 첫 열차 (도보 이동 시간 감안)
+  const firstBoardIdx = (() => {
+    if (!timetable?.departures.length) return 0;
+    const i = timetable.departures.findIndex((d) => d.min >= nowMin + preBoardMin);
+    return i < 0 ? timetable.departures.length - 1 : i; // 오늘 남은 열차가 없으면 막차
+  })();
+  const noMoreToday =
+    !!timetable?.departures.length &&
+    timetable.departures[timetable.departures.length - 1].min < nowMin + preBoardMin;
+
+  // 시간표가 준비되면(또는 시간이 흐르면) 다음 열차를 자동 선택.
+  // 사용자가 직접 고른 뒤에는 두되, 그 열차가 이미 떠났으면 다음 열차로 밀어줍니다.
+  useEffect(() => {
+    if (!timetable) return;
+    setDepIdx((cur) => (!pickedByUser || cur == null || cur < firstBoardIdx ? firstBoardIdx : cur));
+  }, [timetable, pickedByUser, firstBoardIdx]);
+
+  // 실제 발차 시각 (시간표가 없으면 기존 방식으로 대체)
+  const picked = timetable && depIdx != null ? timetable.departures[depIdx] : null;
+  const boardAt = picked ? picked.min : (departMin ?? nowMin) + preBoardMin;
+  // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
+  const journeyStart = boardAt - preBoardMin;
+
+  function stepTrain(delta: number) {
+    if (!timetable) {
+      // 시간표를 못 받은 경우에만 예전처럼 3분 단위로 움직입니다.
+      setDepartMin((m) => {
+        const base = m ?? nowMin;
+        return delta < 0 ? Math.max(nowMin, base - 3) : base + 3;
+      });
+      return;
+    }
+    setPickedByUser(true);
+    setDepIdx((i) => {
+      const cur = i ?? firstBoardIdx;
+      // 이미 떠난 열차로는 되돌아갈 수 없습니다.
+      return Math.min(timetable.departures.length - 1, Math.max(firstBoardIdx, cur + delta));
+    });
+  }
 
   const regCount = seats.top.concat(seats.bottom).filter((s) => s.kind === "occupied").length;
   const neighbors = selectedStation ? stationNeighbors(selectedStation) : null;
@@ -296,9 +395,49 @@ export default function PoogsinApp() {
                 </div>
                 {dep && arr && (
                   <div className="timesel" style={{ marginTop: 8, border: "1px solid var(--line-2)", borderRadius: 12 }}>
-                    <button onClick={() => setDepartMin((m) => Math.max(nowMinutes(), (m ?? nowMinutes()) - 3))}>‹ 이전</button>
-                    <button className="mid">오늘 {fmtAmPm(departMin ?? nowMinutes())} 출발</button>
-                    <button onClick={() => setDepartMin((m) => (m ?? nowMinutes()) + 3)}>다음 ›</button>
+                    <button
+                      onClick={() => stepTrain(-1)}
+                      disabled={timetable ? (depIdx ?? 0) <= firstBoardIdx : false}
+                    >
+                      ‹ 이전
+                    </button>
+                    <button className="mid" style={{ lineHeight: 1.25 }}>
+                      {ttLoading ? (
+                        "시간표 확인 중…"
+                      ) : (
+                        <>
+                          <span>
+                            {boardAt >= 1440 ? "내일 " : "오늘 "}
+                            {fmtAmPm(boardAt)} 발차
+                          </span>
+                          {picked && (
+                            <small
+                              style={{ display: "block", color: "var(--faint)", fontSize: 10.5, fontWeight: 500 }}
+                            >
+                              {boardLeg?.start} · {picked.dest ? `${picked.dest}행` : timetable?.wayLabel}
+                              {noMoreToday
+                                ? " · 오늘 운행 종료(막차)"
+                                : boardAt - preBoardMin > nowMin
+                                  ? ` · ${boardAt - preBoardMin - nowMin}분 뒤`
+                                  : " · 지금"}
+                            </small>
+                          )}
+                          {!picked && !ttLoading && (
+                            <small
+                              style={{ display: "block", color: "var(--faint)", fontSize: 10.5, fontWeight: 500 }}
+                            >
+                              시간표 없음 · 예상 시각
+                            </small>
+                          )}
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => stepTrain(1)}
+                      disabled={timetable ? (depIdx ?? 0) >= timetable.departures.length - 1 : false}
+                    >
+                      다음 ›
+                    </button>
                   </div>
                 )}
                 {dep && arr && (
@@ -308,7 +447,17 @@ export default function PoogsinApp() {
                     <button className={routeTab === "fare" ? "on" : ""} onClick={() => setRouteTab("fare")}>최저요금</button>
                     <button
                       className={routeTab === "last" ? "on" : ""}
-                      onClick={() => { setRouteTab("last"); showToast("막차 기준은 시간표 연동 후 제공됩니다"); }}
+                      onClick={() => {
+                        setRouteTab("last");
+                        if (timetable && timetable.departures.length) {
+                          const lastIdx = timetable.departures.length - 1;
+                          setPickedByUser(true);
+                          setDepIdx(lastIdx);
+                          showToast(`이 역 막차는 ${fmtAmPm(timetable.departures[lastIdx].min)}입니다`);
+                        } else {
+                          showToast("이 역의 시간표를 받지 못했어요");
+                        }
+                      }}
                     >
                       막차
                     </button>
@@ -334,7 +483,7 @@ export default function PoogsinApp() {
               onTimetable={() => showToast("전체 시간표는 추후 연결")}
             />
           ) : (
-            <RouteDetail route={route} from={dep} to={arr} departAt={departMin ?? nowMinutes()} onBoard={() => setView("car")} />
+            <RouteDetail route={route} from={dep} to={arr} departAt={journeyStart} onBoard={() => setView("car")} />
           )}
 
           {/* 지도 위 FAB (깨끗한 홈에서만) */}
@@ -450,7 +599,7 @@ export default function PoogsinApp() {
                 <div className="rs-head">
                   <span className="dur">{route.totalTime}분</span>
                   <span className="sub">
-                    {fmtAmPm(departMin ?? nowMinutes())} – {fmtAmPm((departMin ?? nowMinutes()) + (route.totalTime || 0))} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
+                    {fmtAmPm(journeyStart)} – {fmtAmPm(journeyStart + (route.totalTime || 0))} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
                   </span>
                 </div>
                 <div className="segbar">
