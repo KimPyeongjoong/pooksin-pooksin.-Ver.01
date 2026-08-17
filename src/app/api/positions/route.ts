@@ -58,11 +58,21 @@ export async function GET(request: Request) {
       });
     }
 
+    // 서울 API의 updnLine은 0=상행(순환선은 내선), 1=하행(순환선은 외선)입니다.
+    // 앱은 시간표(ODsay)에 맞춰 상행=외선=up, 하행=내선=down으로 통일하므로
+    // 순환선인 2호선만 반대로 뒤집습니다.
+    const circular = /2호선/.test(line);
     const trains: TrainPos[] = list.map((t) => ({
       trainNo: t.trainNo ?? "",
       station: (t.statnNm ?? "").trim(),
       dest: (t.statnTnm ?? "").replace(/종착$/, "").trim(),
-      updn: t.updnLine === "1" ? "down" : "up",
+      updn: circular
+        ? t.updnLine === "1"
+          ? "up"
+          : "down"
+        : t.updnLine === "1"
+          ? "down"
+          : "up",
       status: STATUS[t.trainSttus] ?? "",
       express: t.directAt === "1" || t.directAt === "7",
       last: t.lstcarAt === "1",

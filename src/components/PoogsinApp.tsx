@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import SchematicMap from "./SchematicMap";
 import TimetableView from "./TimetableView";
 import LiveTrainView from "./LiveTrainView";
+import TrainStrip, { type TrainPos } from "./TrainStrip";
 import {
   CAR_SEATS,
   MOCK_ARRIVALS,
@@ -62,6 +63,9 @@ type RouteData = {
 };
 type RouteTab = "time" | "transfer" | "fare" | "last";
 
+// 열차 칸 번호. ⚠️ 아직 목업입니다 — 실제 칸 수는 노선마다 다릅니다(8칸·6칸 등).
+const CAR_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
 // 여러 후보 경로 중 탭 기준으로 최적 하나 고르기
 function pickRoute(options: RouteData[], tab: RouteTab): RouteData | null {
   if (!options.length) return null;
@@ -111,6 +115,9 @@ export default function PoogsinApp() {
 
   // 탑승 칸을 고르는 중인 구간 (환승이 있으면 노선마다 따로 고릅니다)
   const [carLeg, setCarLeg] = useState<RouteLeg | null>(null);
+  const [pickedTrain, setPickedTrain] = useState<TrainPos | null>(null); // 내가 탄 열차
+  const [pickedCar, setPickedCar] = useState(3); // 내가 탄 칸
+  const [carAsc, setCarAsc] = useState(true); // true면 1번 칸이 맨 앞(위)
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -561,6 +568,7 @@ export default function PoogsinApp() {
               boardDest={picked?.dest ?? null}
               onBoard={(leg) => {
                 setCarLeg(leg);
+                setPickedTrain(null); // 구간이 바뀌면 열차도 다시 고릅니다
                 setView("car");
               }}
             />
@@ -790,21 +798,50 @@ export default function PoogsinApp() {
                 {carLeg.way && <small>{withYeok(carLeg.way)} 방면</small>}
               </div>
             )}
+            {carLeg?.line && carLeg?.start && (
+              <TrainStrip
+                line={carLeg.line}
+                boardStation={carLeg.start}
+                endStation={carLeg.end}
+                wayCode={carLeg.wayCode}
+                fallbackLabel={
+                  picked ? `${hhmm(picked.min)} ${picked.dest ? `${picked.dest}행` : ""}`.trim() : null
+                }
+                selected={pickedTrain}
+                onSelect={setPickedTrain}
+              />
+            )}
+
             <p className="platform-hint">지금 서 계신 승강장 칸을 눌러주세요</p>
-            <div className="dirflow">
-              <span>{carLeg?.way ? `${withYeok(carLeg.way)} 방면` : "진행 방향"}</span>
-              <span className="arrowline" />
+
+            {/* 열차는 세로로 세우고, 진행 방향은 언제나 위쪽입니다.
+                칸 번호가 앞에서부터인지 뒤에서부터인지만 아래 버튼으로 뒤집습니다. */}
+            <div className="cars-dir">
+              <span className="cars-arrow" />
+              {carLeg?.way ? `${withYeok(carLeg.way)} 방면` : "진행 방향"}
             </div>
-            <div className="train">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                <div className={`car ${n === 3 ? "sel" : ""} ${n === 5 || n === quickCar ? "tip" : ""}`} key={n}>
-                  {n}
-                  <small>{n === 3 ? "여기" : n === 5 ? "약냉방" : n === quickCar ? "빠른환승" : "일반"}</small>
-                </div>
+            <div className="cars">
+              {(carAsc ? CAR_NUMBERS : [...CAR_NUMBERS].reverse()).map((n) => (
+                <button
+                  className={`carrow${n === pickedCar ? " sel" : ""}`}
+                  key={n}
+                  onClick={() => setPickedCar(n)}
+                >
+                  <span className="carrow-n">{n}</span>
+                  <span className="carrow-tags">
+                    {n === pickedCar && <em className="ct here">여기</em>}
+                    {n === 5 && <em className="ct cool">약냉방</em>}
+                    {n === quickCar && <em className="ct fast">빠른환승</em>}
+                  </span>
+                </button>
               ))}
             </div>
+            <button className="cars-flip" onClick={() => setCarAsc((v) => !v)}>
+              칸 번호 순서 뒤집기 · 현재 {carAsc ? "1번 칸이 맨 앞" : `${CAR_NUMBERS.length}번 칸이 맨 앞`}
+            </button>
+
             <div className="infobox">
-              <b style={{ color: "var(--ink)" }}>3번 칸</b> 선택됨
+              <b style={{ color: "var(--ink)" }}>{pickedCar}번 칸</b> 선택됨
               {quickCar && carLeg?.end ? (
                 <>
                   {" "}· {carLeg.end} <b style={{ color: "var(--good)" }}>빠른 환승</b>은 {quickTransfer(carLeg.door)}이 유리합니다.
@@ -814,7 +851,7 @@ export default function PoogsinApp() {
           </div>
           <div className="sticky-cta">
             <button className="btn" onClick={() => setView("seat")}>
-              3번 칸 좌석 보기 →
+              {pickedCar}번 칸 좌석 보기 →
             </button>
           </div>
         </div>
@@ -827,13 +864,13 @@ export default function PoogsinApp() {
             <button className="back" onClick={() => setView("car")}>
               ‹
             </button>
-            3번 칸 좌석
+            {pickedCar}번 칸 좌석
           </div>
           <div className="scroll pad">
             <div className="banner">
-              <span className="bnum">3</span>
+              <span className="bnum">{pickedCar}</span>
               <span className="btxt">
-                타고 계신 <b>3번 칸</b>에<br />
+                타고 계신 <b>{pickedCar}번 칸</b>에<br />
                 하차역 입력된 좌석 <b>{regCount}개</b>
               </span>
             </div>
