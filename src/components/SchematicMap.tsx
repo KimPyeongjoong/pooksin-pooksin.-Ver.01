@@ -84,25 +84,33 @@ function labelOffset(lp?: string) {
   }
 }
 
+type Focus = { dep: string; arr: string; lines: string[] };
 type Props = {
   onStationClick?: (name: string) => void;
   selected?: string | null;
   popoverOpen?: boolean;
+  focus?: Focus | null;
   onStart?: () => void;
   onWaypoint?: () => void;
   onEnd?: () => void;
   onTimetable?: () => void;
 };
 
+// 노선명 정규화(라벨 표기 차이 흡수: "경의·중앙선" vs "경의중앙선")
+const normLine = (s: string) => (s || "").replace(/[·\s]/g, "").replace(/선$/, "");
+
 export default function SchematicMap({
   onStationClick,
   selected,
   popoverOpen,
+  focus,
   onStart,
   onWaypoint,
   onEnd,
   onTimetable,
 }: Props) {
+  const isActiveLine = (label: string) =>
+    !focus || focus.lines.some((rl) => normLine(rl) === normLine(label));
   // viewBox 기반 확대/이동 (CSS scale이 아니라 벡터 자체를 다시 그림 → 항상 선명)
   const containerRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ active: false, lastX: 0, lastY: 0, moved: false });
@@ -132,11 +140,33 @@ export default function SchematicMap({
 
   // 역이 선택되면 그 역을 화면 위쪽(하단 시트에 안 가리는 영역)으로 이동
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || focus) return;
     const m = MARKERS.find((x) => x.name === selected);
     if (!m) return;
     setView((v) => ({ ...v, x: m.x - v.w / 2, y: m.y - v.h * 0.4 }));
-  }, [selected]);
+  }, [selected, focus]);
+
+  // 출발·도착이 정해지면 그 경로 영역으로 줌인
+  useEffect(() => {
+    if (!focus) return;
+    const dm = MARKERS.find((x) => x.name === focus.dep);
+    const am = MARKERS.find((x) => x.name === focus.arr);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!dm || !am || !rect || rect.width === 0) return;
+    const ca = rect.width / rect.height;
+    const pad = 16;
+    let minX = Math.min(dm.x, am.x) - pad;
+    let minY = Math.min(dm.y, am.y) - pad;
+    let w = Math.abs(dm.x - am.x) + pad * 2;
+    let h = Math.abs(dm.y - am.y) + pad * 2;
+    const minW = cfg.current.fitW / 6; // 너무 확대되지 않게
+    if (w < minW) { minX -= (minW - w) / 2; w = minW; }
+    if (w / h > ca) { const nh = w / ca; minY -= (nh - h) / 2; h = nh; }
+    else { const nw = h * ca; minX -= (nw - w) / 2; w = nw; }
+    minY -= h * 0.12; // 하단 시트 가림 방지 (경로를 살짝 위로)
+    setView({ x: minX, y: minY, w, h });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.dep, focus?.arr]);
 
   function onPointerDown(e: React.PointerEvent) {
     drag.current = { active: true, lastX: e.clientX, lastY: e.clientY, moved: false };
@@ -207,18 +237,24 @@ export default function SchematicMap({
       onWheel={onWheel}
     >
         <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet">
-          {/* 노선 색선 */}
-          {LINES.map((l, i) => (
-            <path
-              key={l.key}
-              d={PATHS[i]}
-              fill="none"
-              stroke={l.color}
-              strokeWidth={l.width * 0.32}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ))}
+          {/* 노선 색선 (포커스 시 경로 노선만 진하게, 나머지 흐리게) */}
+          {LINES.map((l, i) => {
+            const active = isActiveLine(l.label);
+            return (
+              <path
+                key={l.key}
+                d={PATHS[i]}
+                fill="none"
+                stroke={l.color}
+                strokeWidth={l.width * (focus && active ? 0.42 : 0.32)}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                opacity={focus ? (active ? 1 : 0.1) : 1}
+              />
+            );
+          })}
+
+          <g opacity={focus ? 0.22 : 1}>
 
           {/* 일반역 점 */}
           {DOTS.map((m, i) => (
@@ -272,8 +308,8 @@ export default function SchematicMap({
             );
           })}
 
-          {/* 역 이름 (이름당 1개) */}
-          {showLabels &&
+          {/* 역 이름 (이름당 1개, 포커스 중엔 숨김) */}
+          {showLabels && !focus &&
             LABELS.map((m, i) => {
               const o = labelOffset(m.lp);
               return (
@@ -293,7 +329,7 @@ export default function SchematicMap({
             })}
 
           {/* 선택된 역 강조 (링만 — 이름 중복 방지) */}
-          {selected &&
+          {!focus && selected &&
             MARKERS.filter((m) => m.name === selected).slice(0, 1).map((m, i) => (
               <circle
                 key={`sel-${i}`}
@@ -305,6 +341,28 @@ export default function SchematicMap({
                 strokeWidth={0.9}
               />
             ))}
+          </g>
+
+          {/* 출발/도착 핀 (포커스 시) */}
+          {focus &&
+            ([
+              [focus.dep, "var(--dep)", "출"],
+              [focus.arr, "var(--arr)", "도"],
+            ] as const).map(([name, color, ch]) => {
+              const m = MARKERS.find((x) => x.name === name);
+              if (!m) return null;
+              return (
+                <g key={ch}>
+                  <circle cx={m.x} cy={m.y} r={2.6} fill={color} stroke="#fff" strokeWidth={0.8} />
+                  <text x={m.x} y={m.y} fontSize={2.4} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight={800}>
+                    {ch}
+                  </text>
+                  <text x={m.x} y={m.y - 4.4} fontSize={3.2} fill={color} textAnchor="middle" fontWeight={800} className="rm-label">
+                    {name}
+                  </text>
+                </g>
+              );
+            })}
         </svg>
 
       {/* 역 클릭 팝오버 (출발/경유/도착 + 전체 시간표) */}

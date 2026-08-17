@@ -34,6 +34,18 @@ type RouteData = {
   from?: string; to?: string; totalTime?: number; payment?: number;
   transferCount?: number; stationCount?: number; legs: RouteLeg[]; error?: string;
 };
+type RouteTab = "time" | "transfer" | "fare" | "last";
+
+// 여러 후보 경로 중 탭 기준으로 최적 하나 고르기
+function pickRoute(options: RouteData[], tab: RouteTab): RouteData | null {
+  if (!options.length) return null;
+  const sorted = [...options];
+  const t = (r: RouteData) => r.totalTime ?? 999;
+  if (tab === "transfer") sorted.sort((a, b) => (a.transferCount ?? 9) - (b.transferCount ?? 9) || t(a) - t(b));
+  else if (tab === "fare") sorted.sort((a, b) => (a.payment ?? 0) - (b.payment ?? 0) || t(a) - t(b));
+  else sorted.sort((a, b) => t(a) - t(b)); // time / last(막차는 시간표 연동 전까지 최단시간)
+  return sorted[0];
+}
 
 export default function PoogsinApp() {
   const [view, setView] = useState<View>("home");
@@ -50,8 +62,10 @@ export default function PoogsinApp() {
   const [query, setQuery] = useState("");
 
   // 경로검색
-  const [route, setRoute] = useState<RouteData | null>(null);
+  const [routeOptions, setRouteOptions] = useState<RouteData[]>([]);
+  const [routeErr, setRouteErr] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [routeTab, setRouteTab] = useState<RouteTab>("time");
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -112,7 +126,9 @@ export default function PoogsinApp() {
     setStage("map");
     setDep(null);
     setArr(null);
-    setRoute(null);
+    setRouteOptions([]);
+    setRouteErr(null);
+    setRouteTab("time");
   }
 
   // 도착정보 시트에서 이 역을 출발/도착으로 지정 (지정 후 지도로 복귀)
@@ -127,23 +143,39 @@ export default function PoogsinApp() {
     setStage("map");
   }
 
-  // 출발·도착이 모두 정해지면 실제 경로 검색 (ODsay)
+  // 출발·도착이 모두 정해지면 실제 경로 검색 (ODsay, 여러 후보)
   useEffect(() => {
     if (!dep || !arr) {
-      setRoute(null);
+      setRouteOptions([]);
+      setRouteErr(null);
       return;
     }
     setRouteLoading(true);
-    setRoute(null);
+    setRouteOptions([]);
+    setRouteErr(null);
     fetch(`/api/route?from=${encodeURIComponent(dep)}&to=${encodeURIComponent(arr)}`)
       .then((r) => r.json())
-      .then((d: RouteData) => setRoute(d))
-      .catch(() => setRoute({ legs: [], error: "네트워크 오류" }))
+      .then((d) => {
+        setRouteOptions(d.options || []);
+        setRouteErr(d.error || null);
+      })
+      .catch(() => setRouteErr("네트워크 오류"))
       .finally(() => setRouteLoading(false));
   }, [dep, arr]);
 
+  // 탭 기준으로 고른 현재 경로
+  const route = pickRoute(routeOptions, routeTab);
+
   const regCount = seats.top.concat(seats.bottom).filter((s) => s.kind === "occupied").length;
   const neighbors = selectedStation ? stationNeighbors(selectedStation) : null;
+
+  // 지도 포커스: 출발·도착·경로가 정해지면 그 경로 노선만 강조
+  const routeLines = route
+    ? Array.from(new Set(route.legs.filter((l) => l.type === "subway").map((l) => l.line || "")))
+        .filter(Boolean)
+    : [];
+  const mapFocus =
+    dep && arr && route && routeLines.length ? { dep, arr, lines: routeLines } : null;
 
   // 좌석 클릭 (빈 좌석 → 하차역 입력 모달)
   function tapSeat(row: "top" | "bottom", i: number, s: SeatState) {
@@ -227,7 +259,8 @@ export default function PoogsinApp() {
                 <span className="mag" /> 역 이름으로 검색 (수도권 {STATION_COUNT}개 역)
               </button>
             ) : (
-              <div className="rin">
+              <>
+                <div className="rin">
                 <div className="rin-row">
                   <span className="pin dep" />
                   <button
@@ -251,7 +284,21 @@ export default function PoogsinApp() {
                 <div className="rin-side" style={{ position: "absolute", right: 12, top: 14 }}>
                   <button className="mini" onClick={resetHome} aria-label="초기화">✕</button>
                 </div>
-              </div>
+                </div>
+                {dep && arr && (
+                  <div className="tabs" style={{ marginTop: 8, borderTop: "1px solid var(--line-2)", borderRadius: 12 }}>
+                    <button className={routeTab === "time" ? "on" : ""} onClick={() => setRouteTab("time")}>최단시간</button>
+                    <button className={routeTab === "transfer" ? "on" : ""} onClick={() => setRouteTab("transfer")}>최소환승</button>
+                    <button className={routeTab === "fare" ? "on" : ""} onClick={() => setRouteTab("fare")}>최저요금</button>
+                    <button
+                      className={routeTab === "last" ? "on" : ""}
+                      onClick={() => { setRouteTab("last"); showToast("막차 기준은 시간표 연동 후 제공됩니다"); }}
+                    >
+                      막차
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -264,6 +311,7 @@ export default function PoogsinApp() {
               }}
               selected={selectedStation}
               popoverOpen={stage === "station"}
+              focus={mapFocus}
               onStart={chooseStart}
               onEnd={chooseEnd}
               onWaypoint={() => showToast("경유지 추가는 추후 지원")}
@@ -380,7 +428,7 @@ export default function PoogsinApp() {
                 <div className="grab" />
                 <div style={{ padding: "18px 2px", color: "var(--faint)", fontSize: 13 }}>경로 검색 중…</div>
               </div>
-            ) : route && !route.error && route.legs.some((l) => l.type === "subway") ? (
+            ) : route && route.legs.some((l) => l.type === "subway") ? (
               <div className="sheet" onClick={() => setStage("detail")} style={{ cursor: "pointer" }}>
                 <div className="grab" />
                 <div className="rs-head">
@@ -415,7 +463,7 @@ export default function PoogsinApp() {
               <div className="sheet">
                 <div className="grab" />
                 <div style={{ padding: "14px 2px", color: "var(--muted)", fontSize: 12.5, lineHeight: 1.5 }}>
-                  {route?.error ? `경로를 찾지 못했어요 (${route.error})` : "경로를 찾지 못했어요"}
+                  {routeErr ? `경로를 찾지 못했어요 (${routeErr})` : "경로를 찾지 못했어요"}
                 </div>
               </div>
             )

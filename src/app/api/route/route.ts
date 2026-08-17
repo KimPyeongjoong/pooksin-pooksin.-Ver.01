@@ -32,14 +32,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
-  if (!from || !to) return Response.json({ error: "from/to 필요", legs: [] }, { status: 400 });
+  if (!from || !to) return Response.json({ error: "from/to 필요", options: [] }, { status: 400 });
 
   const key = process.env.ODSAY_API_KEY || "";
-  if (!key) return Response.json({ error: "ODSAY_API_KEY 없음", legs: [] });
+  if (!key) return Response.json({ error: "ODSAY_API_KEY 없음", options: [] });
 
   try {
     const [s, e] = await Promise.all([findStation(key, from), findStation(key, to)]);
-    if (!s || !e) return Response.json({ error: "역 좌표를 찾지 못했어요", legs: [] });
+    if (!s || !e) return Response.json({ error: "역 좌표를 찾지 못했어요", options: [] });
 
     const url =
       `${ODSAY}/searchPubTransPathT?apiKey=${encodeURIComponent(key)}` +
@@ -47,42 +47,44 @@ export async function GET(request: Request) {
     const res = await fetch(url, { cache: "no-store" });
     const data = await res.json();
     if (data.error || !data?.result?.path?.length) {
-      return Response.json({ error: data?.error?.message || "경로를 찾지 못했어요", legs: [] });
+      return Response.json({ error: data?.error?.message || "경로를 찾지 못했어요", options: [] });
     }
 
-    const best = data.result.path[0];
-    const info = best.info;
-    const legs = (best.subPath || []).map((p: any) => {
-      if (p.trafficType === 1) {
-        const laneName = p.lane?.[0]?.name || "지하철";
-        return {
-          type: "subway",
-          line: shortLine(laneName),
-          color: colorFor(laneName),
-          start: p.startName,
-          end: p.endName,
-          stationCount: p.stationCount,
-          min: p.sectionTime,
-          way: p.way || "",
-          door: p.door || "",
-        };
-      }
-      if (p.trafficType === 3) {
-        return { type: "walk", min: p.sectionTime || 0, distance: p.distance || 0 };
-      }
-      return { type: "etc", min: p.sectionTime || 0 };
+    // 여러 후보 경로를 정규화해서 반환 (필터 탭이 이 중에서 골라 씀)
+    const paths = (data.result.path as any[]).slice(0, 8);
+    const options = paths.map((path) => {
+      const info = path.info;
+      const legs = (path.subPath || []).map((p: any) => {
+        if (p.trafficType === 1) {
+          const laneName = p.lane?.[0]?.name || "지하철";
+          return {
+            type: "subway",
+            line: shortLine(laneName),
+            color: colorFor(laneName),
+            start: p.startName,
+            end: p.endName,
+            stationCount: p.stationCount,
+            min: p.sectionTime,
+            way: p.way || "",
+            door: p.door || "",
+          };
+        }
+        if (p.trafficType === 3) {
+          return { type: "walk", min: p.sectionTime || 0, distance: p.distance || 0 };
+        }
+        return { type: "etc", min: p.sectionTime || 0 };
+      });
+      return {
+        totalTime: info.totalTime,
+        payment: info.payment,
+        transferCount: Math.max(0, (info.subwayTransitCount || 1) - 1),
+        stationCount: info.totalStationCount,
+        legs,
+      };
     });
 
-    return Response.json({
-      from,
-      to,
-      totalTime: info.totalTime,
-      payment: info.payment,
-      transferCount: Math.max(0, (info.subwayTransitCount || 1) - 1),
-      stationCount: info.totalStationCount,
-      legs,
-    });
+    return Response.json({ from, to, options });
   } catch (err) {
-    return Response.json({ error: String(err), legs: [] });
+    return Response.json({ error: String(err), options: [] });
   }
 }
