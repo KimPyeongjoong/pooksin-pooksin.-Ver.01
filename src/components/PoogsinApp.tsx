@@ -67,6 +67,7 @@ export default function PoogsinApp() {
   const [routeErr, setRouteErr] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeTab, setRouteTab] = useState<RouteTab>("time");
+  const [departMin, setDepartMin] = useState<number | null>(null); // 선택한 발차 시각(분)
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -149,6 +150,7 @@ export default function PoogsinApp() {
     if (!dep || !arr) {
       setRouteOptions([]);
       setRouteErr(null);
+      setDepartMin(null);
       return;
     }
     setRouteLoading(true);
@@ -159,6 +161,7 @@ export default function PoogsinApp() {
       .then((d) => {
         setRouteOptions(d.options || []);
         setRouteErr(d.error || null);
+        setDepartMin(nowMinutes()); // 발차 기본값 = 현재 시각
       })
       .catch(() => setRouteErr("네트워크 오류"))
       .finally(() => setRouteLoading(false));
@@ -292,6 +295,13 @@ export default function PoogsinApp() {
                 </div>
                 </div>
                 {dep && arr && (
+                  <div className="timesel" style={{ marginTop: 8, border: "1px solid var(--line-2)", borderRadius: 12 }}>
+                    <button onClick={() => setDepartMin((m) => Math.max(nowMinutes(), (m ?? nowMinutes()) - 3))}>‹ 이전</button>
+                    <button className="mid">오늘 {fmtAmPm(departMin ?? nowMinutes())} 출발</button>
+                    <button onClick={() => setDepartMin((m) => (m ?? nowMinutes()) + 3)}>다음 ›</button>
+                  </div>
+                )}
+                {dep && arr && (
                   <div className="tabs" style={{ marginTop: 8, borderTop: "1px solid var(--line-2)", borderRadius: 12 }}>
                     <button className={routeTab === "time" ? "on" : ""} onClick={() => setRouteTab("time")}>최단시간</button>
                     <button className={routeTab === "transfer" ? "on" : ""} onClick={() => setRouteTab("transfer")}>최소환승</button>
@@ -324,7 +334,7 @@ export default function PoogsinApp() {
               onTimetable={() => showToast("전체 시간표는 추후 연결")}
             />
           ) : (
-            <RouteDetail route={route} from={dep} to={arr} onBoard={() => setView("car")} />
+            <RouteDetail route={route} from={dep} to={arr} departAt={departMin ?? nowMinutes()} onBoard={() => setView("car")} />
           )}
 
           {/* 지도 위 FAB (깨끗한 홈에서만) */}
@@ -440,7 +450,7 @@ export default function PoogsinApp() {
                 <div className="rs-head">
                   <span className="dur">{route.totalTime}분</span>
                   <span className="sub">
-                    환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원 · {route.stationCount}정거장
+                    {fmtAmPm(departMin ?? nowMinutes())} – {fmtAmPm((departMin ?? nowMinutes()) + (route.totalTime || 0))} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
                   </span>
                 </div>
                 <div className="segbar">
@@ -665,6 +675,20 @@ function withYeok(name: string): string {
   return name.endsWith("역") ? name : `${name}역`;
 }
 
+// 현재 시각(자정 기준 분)
+function nowMinutes(): number {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+// 분 → "오후 8:27" 형식
+function fmtAmPm(min: number): string {
+  const h24 = Math.floor(min / 60) % 24;
+  const m = ((min % 60) + 60) % 60;
+  const ap = h24 < 12 ? "오전" : "오후";
+  const h12 = h24 % 12 || 12;
+  return `${ap} ${h12}:${String(m).padStart(2, "0")}`;
+}
+
 // 노선명 → 대표 색상 (배지용)
 function lineColor(line: string): string {
   const map: Record<string, string> = {
@@ -746,11 +770,13 @@ function RouteDetail({
   route,
   from,
   to,
+  departAt,
   onBoard,
 }: {
   route: RouteData | null;
   from: string | null;
   to: string | null;
+  departAt: number;
   onBoard: () => void;
 }) {
   if (!route || route.error || !route.legs.some((l) => l.type === "subway")) {
@@ -760,7 +786,15 @@ function RouteDetail({
       </div>
     );
   }
-  const subway = route.legs.filter((l) => l.type === "subway");
+  // 각 구간의 출발 시각을 발차 시각부터 누적 계산
+  let acc = departAt;
+  const timed = route.legs.map((l) => {
+    const start = acc;
+    acc += l.min || 0;
+    return { l, start };
+  });
+  const subway = timed.filter((x) => x.l.type === "subway");
+  const arriveAt = departAt + (route.totalTime || 0);
   const doorText = (d?: string) => {
     if (!d || d === "null" || d === "undefined") return "";
     return d === "L" ? "왼쪽" : d === "R" ? "오른쪽" : d;
@@ -771,12 +805,12 @@ function RouteDetail({
         <div className="dj-head">
           <div className="dur">{route.totalTime}분</div>
           <div className="sub">
-            {from ? withYeok(from) : ""} → {to ? withYeok(to) : ""} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
+            {fmtAmPm(departAt)} 출발 – {fmtAmPm(arriveAt)} 도착 · {route.payment?.toLocaleString()}원
           </div>
-          <div className="dj-note">ODsay 경로 기준 · 현재 소요시간</div>
+          <div className="dj-note">환승 {route.transferCount}회 · {route.stationCount}정거장 · 선택 발차 기준</div>
         </div>
         <div className="journey">
-          {subway.map((l, i) => (
+          {subway.map(({ l, start }, i) => (
             <div className="jrow" key={i}>
               <div className="jrail">
                 <span
@@ -789,6 +823,9 @@ function RouteDetail({
               </div>
               <div className="jbody">
                 <div className="jstation">
+                  <span style={{ fontFamily: "var(--mono)", color: "var(--accent)", fontSize: 12, marginRight: 6 }}>
+                    {fmtAmPm(start)}
+                  </span>
                   {l.start} <span className="chev">→ {l.end}</span>
                 </div>
                 <div className="jmeta">
