@@ -15,6 +15,35 @@ export type Neighbors = {
   next: string | null;
 };
 
+// 노선 이름 표기 차이를 흡수합니다 ("경의·중앙선" = "경의중앙선", "서해" = "서해선")
+const norm = (s: string) => (s || "").replace(/[·\s]/g, "").replace(/선$/, "");
+
+// 노선 위 역들을 순서대로 (실시간 열차 위치 화면에서 일직선으로 그릴 때 씁니다)
+export function lineStations(lineName: string): string[] {
+  const want = norm(lineName);
+  const l =
+    LINES.find((x) => norm(x.label) === want) ??
+    LINES.find((x) => norm(x.label).includes(want) || want.includes(norm(x.label)));
+  if (!l) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of l.nodes) {
+    if (!n.name || seen.has(n.name)) continue;
+    seen.add(n.name);
+    out.push(n.name);
+  }
+  return out;
+}
+
+// 그 역이 지나는 모든 노선 이름
+export function linesAtStation(name: string): { label: string; color: string; indicator: string }[] {
+  return LINES.filter((l) => l.nodes.some((n) => n.name === name)).map((l) => ({
+    label: l.label,
+    color: l.color,
+    indicator: l.indicator,
+  }));
+}
+
 // 해당 역이 처음 등장하는 노선 기준으로 앞/뒤 역을 반환
 export function stationNeighbors(name: string): Neighbors | null {
   for (const l of LINES) {

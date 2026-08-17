@@ -14,8 +14,16 @@ const LINE_NAMES: Record<string, string> = {
   "1081": "경강",
 };
 
-type Train = { msg: string; sec: number };
-type Group = { line: string; dir: string; trains: Train[] };
+// min: 도착까지 남은 분. sec가 0이면 이미 도착/출발 중이라 0으로 둡니다.
+type Train = { msg: string; sec: number; min: number; dest: string };
+// updn: 이 방면이 상행인지 하행인지 (시간표 화면에서 같은 방향을 열어주려고 씁니다)
+type Group = { line: string; dir: string; updn: "up" | "down"; trains: Train[] };
+
+// "성수행 - 강남구청방면" → 행선지 "성수"
+function destOf(trainLineNm: string): string {
+  const m = String(trainLineNm || "").match(/^([^행]+)행/);
+  return m ? m[1].trim() : "";
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -42,12 +50,21 @@ export async function GET(request: Request) {
         map.set(gkey, {
           line: LINE_NAMES[item.subwayId] ?? "지하철",
           dir: item.trainLineNm ?? "",
+          // 서울 API의 updnLine은 "상행"/"하행" 또는 "내선"/"외선"(2호선 순환)으로 옵니다.
+          // 시간표(ODsay) 기준으로 상행=외선, 하행=내선이라 이렇게 맞춥니다.
+          updn: /하행|내선/.test(String(item.updnLine)) ? "down" : "up",
           trains: [],
         });
       }
       const g = map.get(gkey)!;
       if (g.trains.length < 2) {
-        g.trains.push({ msg: item.arvlMsg2 ?? "정보 없음", sec: Number(item.barvlDt) || 0 });
+        const sec = Number(item.barvlDt) || 0;
+        g.trains.push({
+          msg: item.arvlMsg2 ?? "정보 없음",
+          sec,
+          min: sec > 0 ? Math.max(1, Math.round(sec / 60)) : 0,
+          dest: destOf(item.trainLineNm),
+        });
       }
     }
 

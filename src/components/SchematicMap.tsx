@@ -99,6 +99,7 @@ type Props = {
   onWaypoint?: () => void;
   onEnd?: () => void;
   onTimetable?: () => void;
+  onLive?: () => void;
 };
 
 // 노선명 정규화(라벨 표기 차이 흡수: "경의·중앙선" vs "경의중앙선")
@@ -113,6 +114,7 @@ export default function SchematicMap({
   onWaypoint,
   onEnd,
   onTimetable,
+  onLive,
 }: Props) {
   const routeStationSet = focus ? new Set(focus.stations) : null;
   // 출발~도착 사이 "구간"만 뽑아 실제 노선 마디를 따라 그림
@@ -419,9 +421,14 @@ export default function SchematicMap({
             </button>
           </div>
           <div className="pop-div" />
-          <button className="pop-full" onClick={onTimetable}>
-            전체 시간표
-          </button>
+          <div className="popover-row2">
+            <button className="pop-full" onClick={onLive}>
+              실시간
+            </button>
+            <button className="pop-full" onClick={onTimetable}>
+              전체 시간표
+            </button>
+          </div>
         </div>
       )}
 

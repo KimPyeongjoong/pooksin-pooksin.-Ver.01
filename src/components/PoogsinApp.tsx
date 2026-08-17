@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import SchematicMap from "./SchematicMap";
+import TimetableView from "./TimetableView";
+import LiveTrainView from "./LiveTrainView";
 import {
   CAR_SEATS,
   MOCK_ARRIVALS,
@@ -11,9 +13,10 @@ import {
 } from "@/lib/data";
 import { searchStations, STATION_COUNT } from "@/lib/stations";
 import { stationNeighbors } from "@/lib/lines";
+import { DAY_LABEL, type DayType } from "@/lib/holidays";
 
 // 화면(뷰) 종류
-type View = "home" | "car" | "seat";
+type View = "home" | "car" | "seat" | "timetable" | "live";
 // 홈 탭 내부 단계
 type Stage = "map" | "station" | "detail";
 // 검색 오버레이가 무엇을 고르는지
@@ -22,7 +25,8 @@ type SearchMode = "station" | "dep" | "arr";
 type Tab = "home" | "wallet";
 
 // 실시간 도착정보(서버 경로에서 받아오는 모양)
-type ArrivalGroup = { line: string; dir: string; trains: { msg: string; sec: number }[] };
+type ArrivalTrain = { msg: string; sec: number; min?: number; dest?: string };
+type ArrivalGroup = { line: string; dir: string; updn?: "up" | "down"; trains: ArrivalTrain[] };
 type Arrivals = { source: string; updatedAt: string; groups: ArrivalGroup[] };
 
 // 경로검색 결과
@@ -36,12 +40,21 @@ type RouteLeg = {
 
 // 출발역의 실제 시간표 (/api/timetable)
 type Departure = { min: number; dest: string };
+// 서버는 평일/토/휴일 × 상하행을 한 번에 주고, 여기서 필요한 방향만 골라 씁니다.
+type TimetableRes = {
+  line?: string;
+  upWay?: string;
+  downWay?: string;
+  today?: DayType;
+  isHoliday?: boolean;
+  lists?: Record<DayType, { up: Departure[]; down: Departure[] }>;
+  error?: string;
+};
 type Timetable = {
   line?: string;
   wayLabel?: string;
-  dayType?: "weekday" | "sat" | "sun";
+  dayType?: DayType;
   departures: Departure[];
-  error?: string;
 };
 type RouteData = {
   from?: string; to?: string; totalTime?: number; payment?: number;
@@ -87,6 +100,14 @@ export default function PoogsinApp() {
   const [depIdx, setDepIdx] = useState<number | null>(null); // 시간표에서 고른 열차 번호
   const [pickedByUser, setPickedByUser] = useState(false); // 사용자가 이전/다음을 눌렀는지
   const [nowMin, setNowMin] = useState(() => nowMinutes()); // 30초마다 갱신되는 현재 시각
+
+  // 전체 시간표 / 실시간 열차 위치 화면이 무엇을 보여줄지
+  const [ttTarget, setTtTarget] = useState<{
+    station: string;
+    line: string | null;
+    way: "up" | "down" | null;
+  } | null>(null);
+  const [liveTarget, setLiveTarget] = useState<{ station: string; line: string | null } | null>(null);
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -150,6 +171,17 @@ export default function PoogsinApp() {
     setRouteOptions([]);
     setRouteErr(null);
     setRouteTab("time");
+  }
+
+  // 전체 시간표 화면 열기 (도착정보의 방면 칸을 누르면 그 방향으로 열립니다)
+  function openTimetable(station: string, line: string | null = null, way: "up" | "down" | null = null) {
+    setTtTarget({ station, line, way });
+    setView("timetable");
+  }
+  // 실시간 열차 위치 화면 열기
+  function openLive(station: string, line: string | null = null) {
+    setLiveTarget({ station, line });
+    setView("live");
   }
 
   // 도착정보 시트에서 이 역을 출발/도착으로 지정 (지정 후 지도로 복귀)
@@ -222,9 +254,23 @@ export default function PoogsinApp() {
     setTimetable(null);
     setDepIdx(null);
     setPickedByUser(false);
-    fetch(`/api/timetable?stationID=${boardStationID}&wayCode=${boardWayCode ?? 1}`)
+    fetch(`/api/timetable?stationID=${boardStationID}`)
       .then((r) => r.json())
-      .then((d: Timetable) => setTimetable(d?.departures?.length ? d : null))
+      .then((d: TimetableRes) => {
+        const day = d.today ?? "weekday";
+        const way = boardWayCode === 2 ? "down" : "up";
+        const departures = d.lists?.[day]?.[way] ?? [];
+        setTimetable(
+          departures.length
+            ? {
+                line: d.line,
+                wayLabel: way === "up" ? d.upWay : d.downWay,
+                dayType: day,
+                departures,
+              }
+            : null
+        );
+      })
       .catch(() => setTimetable(null))
       .finally(() => setTtLoading(false));
   }, [boardStationID, boardWayCode]);
@@ -327,7 +373,7 @@ export default function PoogsinApp() {
 
   return (
     <div className="app">
-      <StatusBar time={view === "seat" || stage === "detail" ? "8:21" : "8:24"} />
+      <StatusBar time={`${Math.floor(nowMin / 60) % 24}:${String(nowMin % 60).padStart(2, "0")}`} />
 
       {/* ====================== 지갑 탭 ====================== */}
       {tab === "wallet" && view === "home" && (
@@ -480,7 +526,8 @@ export default function PoogsinApp() {
               onStart={chooseStart}
               onEnd={chooseEnd}
               onWaypoint={() => showToast("경유지 추가는 추후 지원")}
-              onTimetable={() => showToast("전체 시간표는 추후 연결")}
+              onTimetable={() => selectedStation && openTimetable(selectedStation, neighbors?.line ?? null)}
+              onLive={() => selectedStation && openLive(selectedStation, neighbors?.line ?? null)}
             />
           ) : (
             <RouteDetail route={route} from={dep} to={arr} departAt={journeyStart} onBoard={() => setView("car")} />
@@ -547,9 +594,14 @@ export default function PoogsinApp() {
                     </div>
                     <div className="arrcards" style={{ maxHeight: 240, overflowY: "auto" }}>
                       {MOCK_ARRIVALS.map((g, i) => (
-                        <div className="arrcard" key={i}>
+                        <button
+                          className="arrcard tappable"
+                          key={i}
+                          onClick={() => selectedStation && openTimetable(selectedStation, g.line, null)}
+                        >
                           <div className="dst">
                             <span>{g.line} · {g.dir}</span>
+                            <span className="chev">›</span>
                           </div>
                           {g.trains.map((t, j) => (
                             <div className="t2" key={j}>
@@ -557,7 +609,7 @@ export default function PoogsinApp() {
                               <em>{t.msg}</em>
                             </div>
                           ))}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </>
@@ -566,19 +618,24 @@ export default function PoogsinApp() {
                 {!arrLoading && arrivals && arrivals.groups.length > 0 && (
                   <div className="arrcards" style={{ maxHeight: 240, overflowY: "auto" }}>
                     {arrivals.groups.map((g, i) => (
-                      <div className="arrcard" key={i}>
+                      <button
+                        className="arrcard tappable"
+                        key={i}
+                        onClick={() =>
+                          selectedStation && openTimetable(selectedStation, g.line, g.updn ?? null)
+                        }
+                      >
                         <div className="dst">
-                          <span>
-                            {g.line} · {g.dir}
-                          </span>
+                          <span>{dirTitle(g)}</span>
+                          <span className="chev">›</span>
                         </div>
                         {g.trains.map((t, j) => (
                           <div className="t2" key={j}>
-                            <span>{j === 0 ? "이번" : "다음"}</span>
-                            <em>{t.msg}</em>
+                            <span>{t.dest ? `${t.dest}행` : j === 0 ? "이번" : "다음"}</span>
+                            <em>{arrivalText(t)}</em>
                           </div>
                         ))}
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -635,6 +692,51 @@ export default function PoogsinApp() {
           )}
 
           {stage === "map" && !dep && !arr && <BottomNav tab={tab} onTab={setTab} />}
+        </div>
+      )}
+
+      {/* ====================== 전체 시간표 ====================== */}
+      {view === "timetable" && ttTarget && (
+        <div className="view">
+          <div className="appbar">
+            <button className="back" onClick={() => setView("home")}>
+              ‹
+            </button>
+            전체 시간표
+          </div>
+          <div className="scroll">
+            <TimetableView
+              station={ttTarget.station}
+              line={ttTarget.line}
+              initialWay={ttTarget.way}
+              nowMin={nowMin}
+              onClose={() => setView("home")}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ====================== 실시간 열차 위치 ====================== */}
+      {view === "live" && liveTarget && (
+        <div className="view">
+          <div className="appbar">
+            <button className="back" onClick={() => setView("home")}>
+              ‹
+            </button>
+            실시간 열차 위치
+          </div>
+          <div className="scroll">
+            <LiveTrainView
+              station={liveTarget.station}
+              line={liveTarget.line}
+              onClose={() => setView("home")}
+              onStationClick={(name) => {
+                setSelectedStation(name);
+                setStage("station");
+                setView("home");
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -822,6 +924,31 @@ export default function PoogsinApp() {
 // 역명에 "역"을 붙이되 이미 "역"으로 끝나면 그대로 (서울역역 방지)
 function withYeok(name: string): string {
   return name.endsWith("역") ? name : `${name}역`;
+}
+
+// 도착 표시: "3번째 전역" 같은 말 대신 "N분"으로 (실시간 데이터 기준 도착까지 남은 시간)
+//
+// 주의: 서울 API가 남은 시간(초)을 주지 않는 노선이 있습니다(신분당선 등 비서울교통공사 운영).
+//       그런 경우는 분을 지어내지 않고, 남은 정거장 수로 보여줍니다.
+function arrivalText(t: ArrivalTrain): string {
+  if (t.min && t.min > 0) return `${t.min}분`;
+  const msg = (t.msg || "").trim();
+  if (/도착/.test(msg)) return "도착";
+  if (/진입/.test(msg)) return "곧 도착";
+  if (/출발/.test(msg)) return "출발";
+  const stops = msg.match(/\[?(\d+)\]?번째\s*전역/);
+  if (stops) return `${stops[1]}정거장`;
+  return msg || "정보 없음";
+}
+
+// "2호선 · 성수행 - 강남구청방면" → "성수 방면" 처럼 짧게
+function dirTitle(g: ArrivalGroup): string {
+  const dir = (g.dir || "").trim();
+  const via = dir.match(/-\s*(.+?)방면/);
+  if (via) return `${via[1].trim()} 방면`;
+  const dest = dir.match(/^([^행]+)행/);
+  if (dest) return `${dest[1].trim()} 방면`;
+  return dir || `${g.line} 방면`;
 }
 
 // 현재 시각(자정 기준 분)
