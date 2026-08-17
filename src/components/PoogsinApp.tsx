@@ -414,6 +414,20 @@ export default function PoogsinApp() {
               </button>
             ) : (
               <>
+                {stage === "detail" ? (
+                  // 상세 경로 화면: 뒤로가기(경로 유지) + 초기화(✕)
+                  <div className="dj-bar">
+                    <button className="back" onClick={() => setStage("map")} aria-label="뒤로">
+                      ‹
+                    </button>
+                    <b>
+                      {dep ? withYeok(dep) : ""} → {arr ? withYeok(arr) : ""}
+                    </b>
+                    <button className="mini" onClick={resetHome} aria-label="초기화">
+                      ✕
+                    </button>
+                  </div>
+                ) : (
                 <div className="rin">
                 <div className="rin-row">
                   <span className="pin dep" />
@@ -439,6 +453,7 @@ export default function PoogsinApp() {
                   <button className="mini" onClick={resetHome} aria-label="초기화">✕</button>
                 </div>
                 </div>
+                )}
                 {dep && arr && (
                   <div className="timesel" style={{ marginTop: 8, border: "1px solid var(--line-2)", borderRadius: 12 }}>
                     <button
@@ -486,7 +501,7 @@ export default function PoogsinApp() {
                     </button>
                   </div>
                 )}
-                {dep && arr && (
+                {dep && arr && stage !== "detail" && (
                   <div className="tabs" style={{ marginTop: 8, borderTop: "1px solid var(--line-2)", borderRadius: 12 }}>
                     <button className={routeTab === "time" ? "on" : ""} onClick={() => setRouteTab("time")}>최단시간</button>
                     <button className={routeTab === "transfer" ? "on" : ""} onClick={() => setRouteTab("transfer")}>최소환승</button>
@@ -530,7 +545,12 @@ export default function PoogsinApp() {
               onLive={() => selectedStation && openLive(selectedStation, neighbors?.line ?? null)}
             />
           ) : (
-            <RouteDetail route={route} from={dep} to={arr} departAt={journeyStart} onBoard={() => setView("car")} />
+            <RouteDetail
+              route={route}
+              departAt={journeyStart}
+              boardDest={picked?.dest ?? null}
+              onBoard={() => setView("car")}
+            />
           )}
 
           {/* 지도 위 FAB (깨끗한 홈에서만) */}
@@ -956,6 +976,24 @@ function nowMinutes(): number {
   const d = new Date();
   return d.getHours() * 60 + d.getMinutes();
 }
+// 분 → "20:27" 형식 (상세 경로처럼 촘촘한 곳에서 씁니다)
+function hhmm(min: number): string {
+  return `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+}
+
+// ODsay의 door 값은 두 가지로 옵니다.
+//  - "L"/"R"  → 내리는 문 방향
+//  - "1-1"    → 빠른 환승 위치(몇 번째 칸-문)
+function doorSide(d?: string): string {
+  if (d === "L") return "왼쪽";
+  if (d === "R") return "오른쪽";
+  return "";
+}
+function quickTransfer(d?: string): string {
+  if (!d || d === "null" || d === "undefined") return "";
+  return /^\d+-\d+$/.test(d) ? d : "";
+}
+
 // 분 → "오후 8:27" 형식
 function fmtAmPm(min: number): string {
   const h24 = Math.floor(min / 60) % 24;
@@ -1044,15 +1082,13 @@ function SeatBench({
 // 상세 경로 화면 (ODsay 실데이터)
 function RouteDetail({
   route,
-  from,
-  to,
   departAt,
+  boardDest,
   onBoard,
 }: {
   route: RouteData | null;
-  from: string | null;
-  to: string | null;
   departAt: number;
+  boardDest?: string | null; // 첫 열차 행선지 (시간표에서 고른 열차)
   onBoard: () => void;
 }) {
   if (!route || route.error || !route.legs.some((l) => l.type === "subway")) {
@@ -1062,66 +1098,180 @@ function RouteDetail({
       </div>
     );
   }
-  // 각 구간의 출발 시각을 발차 시각부터 누적 계산
+  // ODsay가 알려주는 총 소요시간은 구간 시간의 단순 합보다 큽니다.
+  // 그 차이가 곧 "환승역에서 다음 열차를 기다리는 시간"이라, 환승 지점에 나눠 넣어
+  // 구간별 시각을 더한 값이 총 소요시간과 정확히 맞게 만듭니다.
+  const rideCount = route.legs.filter((l) => l.type === "subway").length;
+  const legSum = route.legs.reduce((s, l) => s + (l.min || 0), 0);
+  const transfers = Math.max(0, rideCount - 1);
+  const slack = Math.max(0, (route.totalTime || 0) - legSum);
+  const waitEach = transfers > 0 ? Math.floor(slack / transfers) : 0;
+  const waitRest = transfers > 0 ? slack - waitEach * transfers : 0; // 나머지는 첫 환승에
+
   let acc = departAt;
-  const timed = route.legs.map((l) => {
+  let seenRides = 0;
+  const timed = route.legs.map((l, i) => {
+    if (l.type === "subway") {
+      if (seenRides > 0) acc += waitEach + (seenRides === 1 ? waitRest : 0);
+      seenRides++;
+    }
     const start = acc;
     acc += l.min || 0;
-    return { l, start };
+    return { l, i, start };
   });
-  const subway = timed.filter((x) => x.l.type === "subway");
-  const arriveAt = departAt + (route.totalTime || 0);
-  const doorText = (d?: string) => {
-    if (!d || d === "null" || d === "undefined") return "";
-    return d === "L" ? "왼쪽" : d === "R" ? "오른쪽" : d;
-  };
+  const arriveAt = Math.max(acc, departAt + (route.totalTime || 0));
+
+  // 지하철 구간만 뽑되, 원래 순서(i)를 기억해 바로 뒤의 도보 구간을 찾을 수 있게 합니다.
+  const rides = timed.filter((x) => x.l.type === "subway");
+
   return (
     <div className="scroll" style={{ background: "var(--surface)" }}>
       <div className="pad">
         <div className="dj-head">
           <div className="dur">{route.totalTime}분</div>
           <div className="sub">
-            {fmtAmPm(departAt)} 출발 – {fmtAmPm(arriveAt)} 도착 · {route.payment?.toLocaleString()}원
+            {fmtAmPm(departAt)} – {fmtAmPm(arriveAt)} · {route.payment?.toLocaleString()}원
           </div>
           <div className="dj-note">환승 {route.transferCount}회 · {route.stationCount}정거장 · 선택 발차 기준</div>
         </div>
-        <div className="journey">
-          {subway.map(({ l, start }, i) => (
-            <div className="jrow" key={i}>
-              <div className="jrail">
-                <span
-                  className="jbadge"
-                  style={{ background: l.color, width: "auto", minWidth: 22, padding: "0 4px", borderRadius: 7, fontSize: 8.5 }}
-                >
-                  {l.line}
-                </span>
-                {i < subway.length - 1 && <span className="jline" style={{ background: l.color }} />}
-              </div>
-              <div className="jbody">
-                <div className="jstation">
-                  <span style={{ fontFamily: "var(--mono)", color: "var(--accent)", fontSize: 12, marginRight: 6 }}>
-                    {fmtAmPm(start)}
+
+        {/* 한눈에 보는 일직선 경로 */}
+        <RouteFlow rides={rides} arriveAt={arriveAt} />
+
+        {/* 세로형 상세 경로 */}
+        <div className="vj">
+          {rides.map(({ l, i, start }, k) => {
+            const alightAt = start + (l.min || 0);
+            const isLast = k === rides.length - 1;
+            // 이 열차에서 내린 뒤의 도보 구간(환승 통로 또는 목적지까지)
+            const walk = timed[i + 1]?.l.type === "walk" ? timed[i + 1].l : null;
+            const nextRide = rides[k + 1];
+            const waitMin = nextRide
+              ? Math.max(0, nextRide.start - (alightAt + (walk?.min || 0)))
+              : 0;
+            const color = l.color || "#6B7280";
+            return (
+              <div key={k}>
+                {/* 승차역 */}
+                <div className="vj-node">
+                  <span className="vj-time">{hhmm(start)}</span>
+                  <span className="vj-mark">
+                    <span className="vj-ic" style={{ borderColor: color, color }}>
+                      ●
+                    </span>
+                    <span className="vj-bar" style={{ background: color }} />
                   </span>
-                  {l.start} <span className="chev">→ {l.end}</span>
+                  <span className="vj-body">
+                    <span className="vj-station">
+                      <em className="vj-line" style={{ background: color }}>
+                        {l.line}
+                      </em>
+                      {withYeok(l.start || "")}
+                    </span>
+                    {l.way && <span className="vj-sub">{withYeok(l.way)} 방면</span>}
+                    {quickTransfer(l.door) && (
+                      <span className="vj-sub">빠른 환승 {quickTransfer(l.door)}</span>
+                    )}
+                    {k === 0 && boardDest && (
+                      <span className="vj-train">
+                        {hhmm(start)} {boardDest}행
+                      </span>
+                    )}
+                    <span className="vj-meta">
+                      {l.stationCount}개 역 이동 · {l.min}분
+                    </span>
+                  </span>
                 </div>
-                <div className="jmeta">
-                  {l.way ? (
-                    <>
-                      <span className="dir">{l.way} 방면</span> ·{" "}
-                    </>
-                  ) : null}
-                  {l.stationCount}개 역 · {l.min}분
-                  {doorText(l.door) ? ` · 내리는 문 ${doorText(l.door)}` : ""}
+
+                {/* 하차역 */}
+                <div className="vj-node">
+                  <span className="vj-time">{hhmm(alightAt)}</span>
+                  <span className="vj-mark">
+                    <span
+                      className={`vj-ic${isLast ? " goal" : " walk"}`}
+                      style={isLast ? undefined : { borderColor: "var(--line-2)" }}
+                    >
+                      {isLast ? "◎" : "↓"}
+                    </span>
+                    {!isLast && <span className="vj-bar dashed" />}
+                  </span>
+                  <span className="vj-body">
+                    <span className="vj-station">{withYeok(l.end || "")}</span>
+                    {doorSide(l.door) && <span className="vj-sub">내리는 문: {doorSide(l.door)}</span>}
+                    {isLast ? (
+                      walk && (walk.min || 0) > 0 ? (
+                        <span className="vj-meta">
+                          출구까지 도보 {walk.distance ? `${walk.distance}m · ` : ""}
+                          {walk.min}분 → {hhmm(arriveAt)} 도착
+                        </span>
+                      ) : (
+                        <span className="vj-meta">도착</span>
+                      )
+                    ) : (
+                      <>
+                        {walk && (walk.min || walk.distance) ? (
+                          <span className="vj-meta">
+                            {walk.distance ? `도보 ${walk.distance}m · ` : "환승 통로 · "}
+                            {walk.min || 0}분
+                          </span>
+                        ) : null}
+                        {waitMin > 0 && <span className="vj-meta">환승 대기 {waitMin}분</span>}
+                      </>
+                    )}
+                  </span>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div className="sticky-cta">
         <button className="btn" onClick={onBoard}>
           이 열차 탑승 칸 선택 →
         </button>
+      </div>
+    </div>
+  );
+}
+
+// 경로를 가로 막대 하나로 요약 (구간 길이는 소요시간에 비례)
+function RouteFlow({
+  rides,
+  arriveAt,
+}: {
+  rides: { l: RouteLeg; start: number }[];
+  arriveAt: number;
+}) {
+  if (!rides.length) return null;
+  return (
+    <div className="rf">
+      <div className="rf-times">
+        {rides.map(({ start }, k) => (
+          <span key={k} style={{ flex: Math.max(1, rides[k].l.min || 1) }}>
+            {hhmm(start)}
+          </span>
+        ))}
+        <span className="rf-end">{hhmm(arriveAt)}</span>
+      </div>
+      <div className="rf-bar">
+        {rides.map(({ l }, k) => (
+          <span
+            className="rf-seg"
+            key={k}
+            style={{ flex: Math.max(1, l.min || 1), background: l.color }}
+          >
+            <em>{l.line}</em>
+            <b>{l.min}분</b>
+          </span>
+        ))}
+      </div>
+      <div className="rf-names">
+        {rides.map(({ l }, k) => (
+          <span key={k} style={{ flex: Math.max(1, l.min || 1), color: l.color }}>
+            {l.start}
+          </span>
+        ))}
+        <span className="rf-end">{rides[rides.length - 1].l.end}</span>
       </div>
     </div>
   );
