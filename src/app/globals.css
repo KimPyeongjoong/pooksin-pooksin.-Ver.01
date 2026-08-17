@@ -295,6 +295,16 @@ button{font-family:inherit}
 .vj-sub{font-size:12px;color:var(--ink);font-weight:600}
 .vj-meta{font-size:12px;color:var(--muted);font-weight:550}
 .vj-train{align-self:flex-start;border:1px solid var(--line-2);background:var(--surface-2);border-radius:9px;padding:8px 12px;font-family:var(--mono);font-size:12.5px;font-weight:750;margin:3px 0}
+/* 구간(노선)마다 놓이는 탑승 칸 선택 버튼 */
+.vj-cta{align-self:stretch;display:flex;align-items:center;gap:7px;margin-top:7px;border:1.5px solid;border-radius:10px;background:var(--surface);padding:10px 12px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
+.vj-cta:active{background:var(--surface-2)}
+.vj-cta em{font-style:normal;flex:none;color:#fff;font-size:9.5px;font-weight:800;border-radius:6px;padding:2px 6px}
+.vj-cta-chev{margin-left:auto;color:var(--faint);font-weight:800}
+
+/* 칸 선택 화면: 어느 노선/역인지 */
+.car-ctx{display:flex;align-items:center;gap:7px;margin-bottom:12px}
+.car-ctx b{font-size:15px;font-weight:750}
+.car-ctx small{font-size:12px;color:var(--muted);font-weight:600}
 .jchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;margin-top:9px}
 .jchip .tm{font-family:var(--mono);color:var(--accent);font-weight:700}
 .jtag{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:2px 5px;margin-left:6px}

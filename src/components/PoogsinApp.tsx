@@ -109,6 +109,9 @@ export default function PoogsinApp() {
   } | null>(null);
   const [liveTarget, setLiveTarget] = useState<{ station: string; line: string | null } | null>(null);
 
+  // 탑승 칸을 고르는 중인 구간 (환승이 있으면 노선마다 따로 고릅니다)
+  const [carLeg, setCarLeg] = useState<RouteLeg | null>(null);
+
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
   const [pickedSeat, setPickedSeat] = useState<string | null>(null);
@@ -297,6 +300,13 @@ export default function PoogsinApp() {
   const boardAt = picked ? picked.min : (departMin ?? nowMin) + preBoardMin;
   // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
   const journeyStart = boardAt - preBoardMin;
+
+  // 빠른 환승 칸 번호 (ODsay door가 "1-1"처럼 오면 앞 숫자가 칸 번호)
+  const quickCar = (() => {
+    const q = quickTransfer(carLeg?.door);
+    const n = q ? Number(q.split("-")[0]) : NaN;
+    return Number.isFinite(n) && n >= 1 && n <= 10 ? n : 0;
+  })();
 
   function stepTrain(delta: number) {
     if (!timetable) {
@@ -549,7 +559,10 @@ export default function PoogsinApp() {
               route={route}
               departAt={journeyStart}
               boardDest={picked?.dest ?? null}
-              onBoard={() => setView("car")}
+              onBoard={(leg) => {
+                setCarLeg(leg);
+                setView("car");
+              }}
             />
           )}
 
@@ -767,24 +780,36 @@ export default function PoogsinApp() {
             <button className="back" onClick={() => setView("home")}>
               ‹
             </button>
-            탑승한 칸 선택
+            {carLeg?.line ? `${carLeg.line} 탑승 칸 선택` : "탑승한 칸 선택"}
           </div>
           <div className="scroll pad">
+            {carLeg && (
+              <div className="car-ctx">
+                <span className="vj-line" style={{ background: carLeg.color }}>{carLeg.line}</span>
+                <b>{withYeok(carLeg.start || "")}</b>
+                {carLeg.way && <small>{withYeok(carLeg.way)} 방면</small>}
+              </div>
+            )}
             <p className="platform-hint">지금 서 계신 승강장 칸을 눌러주세요</p>
             <div className="dirflow">
-              <span>신도림 방면</span>
+              <span>{carLeg?.way ? `${withYeok(carLeg.way)} 방면` : "진행 방향"}</span>
               <span className="arrowline" />
             </div>
             <div className="train">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                <div className={`car ${n === 3 ? "sel" : ""} ${n === 5 || n === 8 ? "tip" : ""}`} key={n}>
+                <div className={`car ${n === 3 ? "sel" : ""} ${n === 5 || n === quickCar ? "tip" : ""}`} key={n}>
                   {n}
-                  <small>{n === 3 ? "여기" : n === 5 ? "약냉방" : n === 8 ? "빠른환승" : "일반"}</small>
+                  <small>{n === 3 ? "여기" : n === 5 ? "약냉방" : n === quickCar ? "빠른환승" : "일반"}</small>
                 </div>
               ))}
             </div>
             <div className="infobox">
-              <b style={{ color: "var(--ink)" }}>3번 칸</b> 선택됨 · 부평구청 <b style={{ color: "var(--good)" }}>빠른 환승</b>은 8번 칸이 유리합니다.
+              <b style={{ color: "var(--ink)" }}>3번 칸</b> 선택됨
+              {quickCar && carLeg?.end ? (
+                <>
+                  {" "}· {carLeg.end} <b style={{ color: "var(--good)" }}>빠른 환승</b>은 {quickTransfer(carLeg.door)}이 유리합니다.
+                </>
+              ) : null}
             </div>
           </div>
           <div className="sticky-cta">
@@ -1089,7 +1114,7 @@ function RouteDetail({
   route: RouteData | null;
   departAt: number;
   boardDest?: string | null; // 첫 열차 행선지 (시간표에서 고른 열차)
-  onBoard: () => void;
+  onBoard: (leg: RouteLeg) => void; // 그 노선의 탑승 칸 선택으로 이동
 }) {
   if (!route || route.error || !route.legs.some((l) => l.type === "subway")) {
     return (
@@ -1180,6 +1205,12 @@ function RouteDetail({
                     <span className="vj-meta">
                       {l.stationCount}개 역 이동 · {l.min}분
                     </span>
+                    {/* 환승이 있으면 노선마다 칸을 새로 골라야 해서 구간별로 둡니다 */}
+                    <button className="vj-cta" onClick={() => onBoard(l)} style={{ borderColor: color }}>
+                      <em style={{ background: color }}>{l.line}</em>
+                      탑승 칸 선택
+                      <span className="vj-cta-chev">›</span>
+                    </button>
                   </span>
                 </div>
 
@@ -1224,11 +1255,6 @@ function RouteDetail({
             );
           })}
         </div>
-      </div>
-      <div className="sticky-cta">
-        <button className="btn" onClick={onBoard}>
-          이 열차 탑승 칸 선택 →
-        </button>
       </div>
     </div>
   );
