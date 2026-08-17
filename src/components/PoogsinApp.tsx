@@ -66,6 +66,20 @@ type RouteTab = "time" | "transfer" | "fare" | "last";
 // 열차 칸 번호. ⚠️ 아직 목업입니다 — 실제 칸 수는 노선마다 다릅니다(8칸·6칸 등).
 const CAR_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
+// 칸 번호는 열차 편성에 고정되어 있어서, 같은 열차라도 진행 방향에 따라
+// 1번 칸이 맨 앞일 수도, 맨 뒤일 수도 있습니다.
+// 화면은 위쪽이 언제나 진행 방향이므로, 방향에 맞춰 나열 순서를 자동으로 정합니다.
+//
+// ⚠️ 어느 쪽 끝이 1호차인지는 공개 데이터에 없어 아래 가정을 씁니다.
+//    (하행 = 1번 칸이 맨 앞) 실제 승강장 표기와 다르면 이 값만 false로 바꾸면 됩니다.
+const CAR_ONE_LEADS_ON_DOWN = true;
+
+function orderCars(wayCode?: number | null): number[] {
+  const isDown = wayCode === 2; // 1=상행/외선, 2=하행/내선
+  const oneAtFront = isDown === CAR_ONE_LEADS_ON_DOWN;
+  return oneAtFront ? CAR_NUMBERS : [...CAR_NUMBERS].reverse();
+}
+
 // 여러 후보 경로 중 탭 기준으로 최적 하나 고르기
 function pickRoute(options: RouteData[], tab: RouteTab): RouteData | null {
   if (!options.length) return null;
@@ -117,7 +131,6 @@ export default function PoogsinApp() {
   const [carLeg, setCarLeg] = useState<RouteLeg | null>(null);
   const [pickedTrain, setPickedTrain] = useState<TrainPos | null>(null); // 내가 탄 열차
   const [pickedCar, setPickedCar] = useState(3); // 내가 탄 칸
-  const [carAsc, setCarAsc] = useState(true); // true면 1번 칸이 맨 앞(위)
 
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
@@ -307,6 +320,9 @@ export default function PoogsinApp() {
   const boardAt = picked ? picked.min : (departMin ?? nowMin) + preBoardMin;
   // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
   const journeyStart = boardAt - preBoardMin;
+
+  // 진행 방향(위쪽)에 맞춘 칸 나열 순서
+  const carOrder = orderCars(carLeg?.wayCode);
 
   // 빠른 환승 칸 번호 (ODsay door가 "1-1"처럼 오면 앞 숫자가 칸 번호)
   const quickCar = (() => {
@@ -815,30 +831,27 @@ export default function PoogsinApp() {
             <p className="platform-hint">지금 서 계신 승강장 칸을 눌러주세요</p>
 
             {/* 열차는 세로로 세우고, 진행 방향은 언제나 위쪽입니다.
-                칸 번호가 앞에서부터인지 뒤에서부터인지만 아래 버튼으로 뒤집습니다. */}
+                1번 칸이 앞인지 뒤인지는 진행 방향(상행/하행)에 따라 자동으로 정해집니다. */}
             <div className="cars-dir">
               <span className="cars-arrow" />
               {carLeg?.way ? `${withYeok(carLeg.way)} 방면` : "진행 방향"}
             </div>
             <div className="cars">
-              {(carAsc ? CAR_NUMBERS : [...CAR_NUMBERS].reverse()).map((n) => (
+              {carOrder.map((n) => (
                 <button
                   className={`carrow${n === pickedCar ? " sel" : ""}`}
                   key={n}
                   onClick={() => setPickedCar(n)}
                 >
-                  <span className="carrow-n">{n}</span>
+                  <span className="carrow-n">{n}번 칸</span>
                   <span className="carrow-tags">
-                    {n === pickedCar && <em className="ct here">여기</em>}
                     {n === 5 && <em className="ct cool">약냉방</em>}
                     {n === quickCar && <em className="ct fast">빠른환승</em>}
                   </span>
                 </button>
               ))}
             </div>
-            <button className="cars-flip" onClick={() => setCarAsc((v) => !v)}>
-              칸 번호 순서 뒤집기 · 현재 {carAsc ? "1번 칸이 맨 앞" : `${CAR_NUMBERS.length}번 칸이 맨 앞`}
-            </button>
+            <div className="cars-note">맨 위가 열차 진행 방향입니다</div>
 
             <div className="infobox">
               <b style={{ color: "var(--ink)" }}>{pickedCar}번 칸</b> 선택됨

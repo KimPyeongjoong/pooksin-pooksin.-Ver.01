@@ -351,17 +351,17 @@ button{font-family:inherit}
 /* ---- 세로형 열차 칸 (진행 방향은 언제나 위) ---- */
 .cars-dir{display:flex;align-items:center;justify-content:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--muted);margin:4px 0 8px}
 .cars-arrow{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid var(--line-2)}
-.cars{display:flex;flex-direction:column;gap:5px;max-width:230px;margin:0 auto}
-.carrow{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line-2);border-radius:10px;background:var(--surface-2);padding:9px 11px;font-family:inherit;cursor:pointer;text-align:left}
+.cars{display:flex;flex-direction:column;gap:5px;max-width:250px;margin:0 auto}
+.carrow{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line-2);border-radius:10px;background:var(--surface-2);padding:10px 13px;font-family:inherit;cursor:pointer;text-align:left}
 .carrow:first-child{border-top-left-radius:16px;border-top-right-radius:16px}
 .carrow:last-child{border-bottom-left-radius:16px;border-bottom-right-radius:16px}
-.carrow-n{flex:none;width:24px;font-family:var(--mono);font-size:14px;font-weight:800;color:var(--muted);text-align:center}
-.carrow-tags{display:flex;gap:4px;flex-wrap:wrap}
+.carrow-n{flex:none;min-width:56px;font-size:13.5px;font-weight:750;color:var(--muted)}
+.carrow-tags{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
 .ct{font-style:normal;font-size:9px;font-weight:800;border-radius:5px;padding:2px 5px;color:#fff}
-.ct.here{background:var(--accent)} .ct.cool{background:#0E7490} .ct.fast{background:#B45309}
+.ct.cool{background:#0E7490} .ct.fast{background:#B45309}
 .carrow.sel{border-color:var(--accent);background:var(--accent-weak)}
-.carrow.sel .carrow-n{color:var(--accent-ink)}
-.cars-flip{display:block;margin:12px auto 0;background:none;border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;font-family:inherit;font-size:11.5px;font-weight:650;color:var(--muted);cursor:pointer}
+.carrow.sel .carrow-n{color:var(--accent-ink);font-weight:850}
+.cars-note{text-align:center;margin-top:10px;font-size:11px;color:var(--faint);font-weight:650}
 
 /* ---- 좌석 도식 ---- */
 .banner{display:flex;align-items:center;gap:12px;background:var(--accent-weak);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px}

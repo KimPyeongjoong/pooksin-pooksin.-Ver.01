@@ -36,8 +36,9 @@ type Props = {
 };
 
 // 보여줄 구간: 타는 역 기준 앞뒤 몇 개 역까지
-const BEFORE = 8;
-const AFTER = 5;
+// (좌우로 넉넉히 움직이며 다른 열차를 찾아 고를 수 있도록 넓게 잡습니다)
+const BEFORE = 20;
+const AFTER = 12;
 
 export default function TrainStrip({
   line,
@@ -102,6 +103,15 @@ export default function TrainStrip({
     return m;
   }, [trains]);
 
+  // 갱신될 때마다 내가 고른 열차의 최신 위치를 반영합니다(같은 열차번호로 다시 찾기).
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = trains.find((t) => t.trainNo === selected.trainNo);
+    if (fresh && (fresh.station !== selected.station || fresh.status !== selected.status)) {
+      onSelect(fresh);
+    }
+  }, [trains, selected, onSelect]);
+
   // 처음 열 때, 타는 역에 가장 가까운 열차를 자동으로 골라줍니다.
   useEffect(() => {
     if (pickedOnce.current || boardIdx < 0 || !trains.length) return;
@@ -122,17 +132,67 @@ export default function TrainStrip({
     }
   }, [trains, stations, boardIdx, onSelect]);
 
-  // 선택된 열차(없으면 타는 역)를 가운데로
+  // 선택된 열차(없으면 타는 역)를 가운데로.
+  // 20초마다 갱신될 때마다 가운데로 되돌리면 사용자가 좌우로 둘러볼 수 없으므로,
+  // "고른 열차가 바뀌었을 때"만 움직입니다.
+  const centeredOn = useRef<string | null>(null);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || !window_.length) return;
+    const key = selected?.trainNo ?? "__board__";
+    if (centeredOn.current === key) return;
+    const target =
+      box.querySelector<HTMLElement>(".ts-col.has-sel") ?? box.querySelector<HTMLElement>(".ts-col.board");
+    if (!target) return;
+    centeredOn.current = key;
+    // 애니메이션 없이 바로 가운데로 (열자마자 가운데에 있어야 하므로)
+    box.scrollLeft = target.offsetLeft - box.clientWidth / 2 + target.clientWidth / 2;
+  }, [selected, window_.length]);
+
+  // 마우스로도 좌우로 끌어서 볼 수 있게 (휴대폰은 손가락으로 그냥 넘어갑니다)
   useEffect(() => {
     const box = scrollRef.current;
     if (!box) return;
-    const target =
-      box.querySelector<HTMLElement>(".ts-col.has-sel") ?? box.querySelector<HTMLElement>(".ts-col.board");
-    if (target) {
-      // 애니메이션 없이 바로 가운데로 (열자마자 가운데에 있어야 하므로)
-      box.scrollLeft = target.offsetLeft - box.clientWidth / 2 + target.clientWidth / 2;
-    }
-  }, [selected, window_.length, loading]);
+    let down = false;
+    let startX = 0;
+    let startLeft = 0;
+    let moved = 0;
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      down = true;
+      moved = 0;
+      startX = e.clientX;
+      startLeft = box.scrollLeft;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      moved = Math.max(moved, Math.abs(dx));
+      box.scrollLeft = startLeft - dx;
+      if (moved > 4) e.preventDefault();
+    };
+    const onUp = () => {
+      down = false;
+    };
+    // 끌고 나서 손을 뗄 때 열차가 눌리지 않도록
+    const onClick = (e: MouseEvent) => {
+      if (moved > 4) {
+        e.stopPropagation();
+        e.preventDefault();
+        moved = 0;
+      }
+    };
+    box.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    box.addEventListener("click", onClick, true);
+    return () => {
+      box.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      box.removeEventListener("click", onClick, true);
+    };
+  }, []);
 
   const color = lineColor(line);
   const unsupported = res && res.supported === false;
