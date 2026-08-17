@@ -84,7 +84,12 @@ function labelOffset(lp?: string) {
   }
 }
 
-type Focus = { dep: string; arr: string; lines: string[] };
+type Focus = {
+  dep: string;
+  arr: string;
+  stations: string[];
+  legs: { line: string; start: string; end: string }[];
+};
 type Props = {
   onStationClick?: (name: string) => void;
   selected?: string | null;
@@ -109,8 +114,27 @@ export default function SchematicMap({
   onEnd,
   onTimetable,
 }: Props) {
-  const isActiveLine = (label: string) =>
-    !focus || focus.lines.some((rl) => normLine(rl) === normLine(label));
+  const routeStationSet = focus ? new Set(focus.stations) : null;
+  // 출발~도착 사이 "구간"만 뽑아 실제 노선 마디를 따라 그림
+  const routeSegments = focus
+    ? focus.legs
+        .map((leg) => {
+          const line = LINES.find((l) => normLine(l.label) === normLine(leg.line));
+          if (!line) return null;
+          const idxs = line.nodes
+            .map((n, i) => (n.name === leg.start || n.name === leg.end ? i : -1))
+            .filter((i) => i >= 0);
+          if (idxs.length < 2) return null;
+          const a = Math.min(...idxs);
+          const b = Math.max(...idxs);
+          let d = "";
+          line.nodes.slice(a, b + 1).forEach((n, i) => {
+            d += (i === 0 ? "M" : "L") + n.x + " " + n.y;
+          });
+          return { d, color: line.color };
+        })
+        .filter((x): x is { d: string; color: string } => x !== null)
+    : [];
   // viewBox 기반 확대/이동 (CSS scale이 아니라 벡터 자체를 다시 그림 → 항상 선명)
   const containerRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ active: false, lastX: 0, lastY: 0, moved: false });
@@ -237,24 +261,34 @@ export default function SchematicMap({
       onWheel={onWheel}
     >
         <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet">
-          {/* 노선 색선 (포커스 시 경로 노선만 진하게, 나머지 흐리게) */}
-          {LINES.map((l, i) => {
-            const active = isActiveLine(l.label);
-            return (
-              <path
-                key={l.key}
-                d={PATHS[i]}
-                fill="none"
-                stroke={l.color}
-                strokeWidth={l.width * (focus && active ? 0.42 : 0.32)}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                opacity={focus ? (active ? 1 : 0.1) : 1}
-              />
-            );
-          })}
+          {/* 노선 색선 (포커스 시 전체 흐리게) */}
+          {LINES.map((l, i) => (
+            <path
+              key={l.key}
+              d={PATHS[i]}
+              fill="none"
+              stroke={l.color}
+              strokeWidth={l.width * 0.32}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              opacity={focus ? 0.14 : 1}
+            />
+          ))}
 
-          <g opacity={focus ? 0.22 : 1}>
+          {/* 경로 구간 강조 (출발~도착 사이만 진하게) */}
+          {routeSegments.map((s, i) => (
+            <path
+              key={`rs-${i}`}
+              d={s.d}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={0.95}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          ))}
+
+          <g>
 
           {/* 일반역 점 */}
           {DOTS.map((m, i) => (
@@ -267,6 +301,7 @@ export default function SchematicMap({
               stroke={m.color}
               strokeWidth={0.4}
               className="rm-dot"
+              opacity={focus ? (routeStationSet!.has(m.name) ? 1 : 0.22) : 1}
               onClick={() => clickStation(m.name)}
             />
           ))}
@@ -282,6 +317,7 @@ export default function SchematicMap({
               stroke="var(--ink)"
               strokeWidth={0.4}
               className="rm-dot"
+              opacity={focus ? (routeStationSet!.has(m.name) ? 1 : 0.22) : 1}
               onClick={() => clickStation(m.name)}
             />
           ))}
@@ -291,7 +327,7 @@ export default function SchematicMap({
             const w = Math.max(2.6, b.text.length * 1.35 + 1.4);
             const h = 2.7;
             return (
-              <g key={`b${i}`} style={{ pointerEvents: "none" }}>
+              <g key={`b${i}`} style={{ pointerEvents: "none" }} opacity={focus ? 0.18 : 1}>
                 <rect x={b.x - w / 2} y={b.y - h / 2} width={w} height={h} rx={0.7} fill={b.color} />
                 <text
                   x={b.x}
@@ -308,18 +344,21 @@ export default function SchematicMap({
             );
           })}
 
-          {/* 역 이름 (이름당 1개, 포커스 중엔 숨김) */}
-          {showLabels && !focus &&
+          {/* 역 이름 (항상 노출 · 포커스 시 경로 위 역만 진하게) */}
+          {showLabels &&
             LABELS.map((m, i) => {
               const o = labelOffset(m.lp);
+              const onRoute = !focus || routeStationSet!.has(m.name);
               return (
                 <text
                   key={`l-${i}`}
                   className="rm-label"
                   x={m.x + o.dx}
                   y={m.y + o.dy}
-                  fontSize={1.9}
+                  fontSize={focus && onRoute ? 2.3 : 1.9}
+                  fontWeight={focus && onRoute ? 800 : 600}
                   textAnchor={o.anchor}
+                  opacity={focus ? (onRoute ? 1 : 0.28) : 1}
                   onClick={() => clickStation(m.name)}
                   style={{ cursor: "pointer" }}
                 >
@@ -356,9 +395,6 @@ export default function SchematicMap({
                   <circle cx={m.x} cy={m.y} r={2.6} fill={color} stroke="#fff" strokeWidth={0.8} />
                   <text x={m.x} y={m.y} fontSize={2.4} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight={800}>
                     {ch}
-                  </text>
-                  <text x={m.x} y={m.y - 4.4} fontSize={3.2} fill={color} textAnchor="middle" fontWeight={800} className="rm-label">
-                    {name}
                   </text>
                 </g>
               );

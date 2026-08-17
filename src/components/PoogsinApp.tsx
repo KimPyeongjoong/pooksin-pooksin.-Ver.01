@@ -29,6 +29,7 @@ type Arrivals = { source: string; updatedAt: string; groups: ArrivalGroup[] };
 type RouteLeg = {
   type: string; line?: string; color?: string; start?: string; end?: string;
   stationCount?: number; min?: number; way?: string; door?: string; distance?: number;
+  stations?: string[];
 };
 type RouteData = {
   from?: string; to?: string; totalTime?: number; payment?: number;
@@ -169,13 +170,18 @@ export default function PoogsinApp() {
   const regCount = seats.top.concat(seats.bottom).filter((s) => s.kind === "occupied").length;
   const neighbors = selectedStation ? stationNeighbors(selectedStation) : null;
 
-  // 지도 포커스: 출발·도착·경로가 정해지면 그 경로 노선만 강조
-  const routeLines = route
-    ? Array.from(new Set(route.legs.filter((l) => l.type === "subway").map((l) => l.line || "")))
-        .filter(Boolean)
-    : [];
+  // 지도 포커스: 출발~도착 사이 "구간"만 강조 + 경로 위 역만 진하게
+  const routeLegs = route ? route.legs.filter((l) => l.type === "subway") : [];
+  const routeStations = Array.from(new Set(routeLegs.flatMap((l) => l.stations || [])));
   const mapFocus =
-    dep && arr && route && routeLines.length ? { dep, arr, lines: routeLines } : null;
+    dep && arr && route && routeLegs.length
+      ? {
+          dep,
+          arr,
+          stations: routeStations,
+          legs: routeLegs.map((l) => ({ line: l.line || "", start: l.start || "", end: l.end || "" })),
+        }
+      : null;
 
   // 좌석 클릭 (빈 좌석 → 하차역 입력 모달)
   function tapSeat(row: "top" | "bottom", i: number, s: SeatState) {

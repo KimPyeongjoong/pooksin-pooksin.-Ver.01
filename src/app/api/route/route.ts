@@ -67,6 +67,7 @@ export async function GET(request: Request) {
             min: p.sectionTime,
             way: p.way || "",
             door: p.door || "",
+            stations: (p.passStopList?.stations || []).map((s: any) => s.stationName),
           };
         }
         if (p.trafficType === 3) {
