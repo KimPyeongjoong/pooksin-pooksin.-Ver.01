@@ -104,6 +104,9 @@ export default function PoogsinApp() {
   // 경로검색
   const [routeOptions, setRouteOptions] = useState<RouteData[]>([]);
   const [routeErr, setRouteErr] = useState<string | null>(null);
+  // 오류 성격: same=출발·도착 같음, retry=호출 몰림/네트워크, notFound=경로 없음
+  const [routeErrKind, setRouteErrKind] = useState<string | null>(null);
+  const [routeReload, setRouteReload] = useState(0); // "다시 시도" 누르면 증가
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeTab, setRouteTab] = useState<RouteTab>("time");
   const [departMin, setDepartMin] = useState<number | null>(null); // 시간표가 없을 때만 쓰는 대체 발차 시각(분)
@@ -220,22 +223,28 @@ export default function PoogsinApp() {
     if (!dep || !arr) {
       setRouteOptions([]);
       setRouteErr(null);
+      setRouteErrKind(null);
       setDepartMin(null);
       return;
     }
     setRouteLoading(true);
     setRouteOptions([]);
     setRouteErr(null);
+    setRouteErrKind(null);
     fetch(`/api/route?from=${encodeURIComponent(dep)}&to=${encodeURIComponent(arr)}`)
       .then((r) => r.json())
       .then((d) => {
         setRouteOptions(d.options || []);
         setRouteErr(d.error || null);
+        setRouteErrKind(d.kind || null);
         setDepartMin(nowMinutes()); // 발차 기본값 = 현재 시각
       })
-      .catch(() => setRouteErr("네트워크 오류"))
+      .catch(() => {
+        setRouteErr("잠시 후 다시 시도해 주세요");
+        setRouteErrKind("retry");
+      })
       .finally(() => setRouteLoading(false));
-  }, [dep, arr]);
+  }, [dep, arr, routeReload]);
 
   // 탭 기준으로 고른 현재 경로
   const route = pickRoute(routeOptions, routeTab);
@@ -264,7 +273,8 @@ export default function PoogsinApp() {
 
   // 출발역의 실제 시간표 불러오기
   useEffect(() => {
-    if (!boardStationID) {
+    const byName = !boardStationID && boardLeg?.start && boardLeg?.line;
+    if (!boardStationID && !byName) {
       setTimetable(null);
       setDepIdx(null);
       return;
@@ -273,7 +283,10 @@ export default function PoogsinApp() {
     setTimetable(null);
     setDepIdx(null);
     setPickedByUser(false);
-    fetch(`/api/timetable?stationID=${boardStationID}`)
+    const q = boardStationID
+      ? `stationID=${boardStationID}`
+      : `station=${encodeURIComponent(boardLeg!.start!)}&line=${encodeURIComponent(boardLeg!.line!)}`;
+    fetch(`/api/timetable?${q}`)
       .then((r) => r.json())
       .then((d: TimetableRes) => {
         const day = d.today ?? "weekday";
@@ -292,7 +305,7 @@ export default function PoogsinApp() {
       })
       .catch(() => setTimetable(null))
       .finally(() => setTtLoading(false));
-  }, [boardStationID, boardWayCode]);
+  }, [boardStationID, boardWayCode, boardLeg?.start, boardLeg?.line]);
 
   // 지금 출발해서 탈 수 있는 첫 열차 (도보 이동 시간 감안)
   const firstBoardIdx = (() => {
@@ -748,8 +761,17 @@ export default function PoogsinApp() {
             ) : (
               <div className="sheet">
                 <div className="grab" />
-                <div style={{ padding: "14px 2px", color: "var(--muted)", fontSize: 12.5, lineHeight: 1.5 }}>
-                  {routeErr ? `경로를 찾지 못했어요 (${routeErr})` : "경로를 찾지 못했어요"}
+                <div className="route-err">
+                  <b>{routeErr ?? "경로를 찾지 못했어요"}</b>
+                  {routeErrKind === "same" && <small>다른 역을 골라주세요</small>}
+                  {routeErrKind === "retry" && (
+                    <>
+                      <small>일시적으로 연결이 불안정합니다</small>
+                      <button className="err-retry" onClick={() => setRouteReload((n) => n + 1)}>
+                        다시 시도
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )

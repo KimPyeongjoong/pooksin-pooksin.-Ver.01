@@ -1,66 +1,99 @@
 // 지하철 경로검색 서버 경로 (ODsay)
 // 호출 예: /api/route?from=강남&to=사당
-// 출발·도착 역명 → ODsay로 좌표를 찾고 → 대중교통(지하철) 경로를 계산합니다.
+//
+// ODsay 호출을 아끼기 위해, 역 좌표는 앱에 내장된 station-coords.json에서 먼저 찾습니다.
+// (예전에는 검색 1번마다 ODsay를 3번 불렀습니다: 출발역 좌표 + 도착역 좌표 + 경로)
+
+import coordsJson from "@/lib/station-coords.json";
+import { lineColor, shortLine } from "@/lib/line-colors";
+import { buildShortRoute } from "@/lib/short-route";
 
 const ODSAY = "https://api.odsay.com/v1/api";
+const COORDS = coordsJson as Record<string, { x: number; y: number }>;
 
-const LINE_COLORS: Record<string, string> = {
-  "1호선": "#0052A4", "2호선": "#00A84D", "3호선": "#EF7C1C", "4호선": "#00A5DE",
-  "5호선": "#996CAC", "6호선": "#CD7C2F", "7호선": "#747F00", "8호선": "#E6186C",
-  "9호선": "#BDB092", "신분당선": "#D31145", "수인분당선": "#FABE00", "분당선": "#FABE00",
-  "경의중앙선": "#77C4A3", "공항철도": "#0090D2", "경춘선": "#0C8E72", "경강선": "#003DA5",
-  "서해선": "#8FC31F", "우이신설선": "#B7C452", "김포골드라인": "#AD8605", "신림선": "#6789CA",
-  "인천1호선": "#7CA8D5", "인천2호선": "#ED8B00", "의정부경전철": "#FDA600", "용인경전철": "#509F22",
-};
-function shortLine(name: string): string {
-  return (name || "").replace(/^수도권\s*/, "").replace(/^인천\s*/, "인천").trim();
-}
-function colorFor(name: string): string {
-  return LINE_COLORS[shortLine(name)] ?? "#888888";
-}
+type Pt = { x: number; y: number };
 
-async function findStation(key: string, name: string) {
-  const url = `${ODSAY}/searchStation?apiKey=${encodeURIComponent(key)}&stationName=${encodeURIComponent(name)}&stationClass=2`;
+// ODsay는 요청이 몰리면 깔끔한 오류 대신 연결을 끊어버립니다.
+// 대부분 잠깐이면 풀리므로 한 번은 조용히 다시 시도합니다.
+async function fetchOnce(url: string) {
   const res = await fetch(url, { cache: "no-store" });
-  const data = await res.json();
-  const list: any[] = data?.result?.station ?? [];
-  const exact = list.find((s) => s.stationName === name) ?? list[0];
-  return exact ? { x: exact.x, y: exact.y } : null;
+  return res.json();
 }
+// 호출이 몰렸을 때 ODsay가 주는 반응 (연결 끊김 또는 "Too Many Requests")
+function isBusy(data: Record<string, any> | null | undefined) {
+  const msg = String(data?.error?.message ?? "");
+  const code = String(data?.error?.code ?? "");
+  return /too many|limit|초과/i.test(msg) || code === "500";
+}
+async function odsay(url: string) {
+  try {
+    const data = await fetchOnce(url);
+    if (!isBusy(data)) return data;
+  } catch {
+    // 연결이 끊긴 경우도 아래에서 한 번 더 시도합니다
+  }
+  await new Promise((r) => setTimeout(r, 900));
+  return fetchOnce(url); // 두 번째도 실패하면 호출한 쪽에서 처리
+}
+
+// 역 좌표: 내장 파일 우선, 없으면 ODsay에 물어봅니다(현재 655개 중 2개만 해당)
+async function findStation(key: string, name: string): Promise<Pt | null> {
+  const hit = COORDS[name];
+  if (hit) return hit;
+  const url = `${ODSAY}/searchStation?apiKey=${encodeURIComponent(key)}&stationName=${encodeURIComponent(name)}&stationClass=2`;
+  const data = await odsay(url);
+  const list: { stationName: string; x: number; y: number }[] = data?.result?.station ?? [];
+  const exact = list.find((s) => s.stationName === name) ?? list[0];
+  return exact ? { x: Number(exact.x), y: Number(exact.y) } : null;
+}
+
+type Fail = { error: string; kind: "same" | "tooClose" | "retry" | "notFound"; options: [] };
+const fail = (kind: Fail["kind"], error: string, status = 200) =>
+  Response.json({ error, kind, options: [] }, { status });
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
-  if (!from || !to) return Response.json({ error: "from/to 필요", options: [] }, { status: 400 });
+  if (!from || !to) return fail("notFound", "출발역과 도착역이 필요해요", 400);
+  if (from === to) return fail("same", "출발역과 도착역이 같습니다");
 
   const key = process.env.ODSAY_API_KEY || "";
-  if (!key) return Response.json({ error: "ODSAY_API_KEY 없음", options: [] });
+  if (!key) return fail("notFound", "경로 서비스 설정이 필요해요");
 
   try {
     const [s, e] = await Promise.all([findStation(key, from), findStation(key, to)]);
-    if (!s || !e) return Response.json({ error: "역 좌표를 찾지 못했어요", options: [] });
+    if (!s || !e) return fail("notFound", "역 위치를 찾지 못했어요");
 
     const url =
       `${ODSAY}/searchPubTransPathT?apiKey=${encodeURIComponent(key)}` +
       `&SX=${s.x}&SY=${s.y}&EX=${e.x}&EY=${e.y}&SearchPathType=1`;
-    const res = await fetch(url, { cache: "no-store" });
-    const data = await res.json();
-    if (data.error || !data?.result?.path?.length) {
-      return Response.json({ error: data?.error?.message || "경로를 찾지 못했어요", options: [] });
+    const data = await odsay(url);
+
+    // -98 = 출발지와 도착지가 너무 가까움(약 700m 미만). ODsay가 경로를 주지 않으므로
+    // 노선도와 실제 시간표로 우리가 직접 구간을 만들어 보여줍니다.
+    if (String(data?.error?.code) === "-98") {
+      const built = await buildShortRoute(from, to);
+      if (built) return Response.json({ from, to, options: [built], builtLocally: true });
+      return fail("tooClose", "두 역이 매우 가까워 경로를 만들지 못했어요");
     }
 
+    // 호출 초과·서버 오류를 "경로 없음"으로 보여주면 안 됩니다(경로는 있는데 못 물어본 것)
+    if (isBusy(data)) return fail("retry", "잠시 후 다시 시도해 주세요");
+    if (data?.error) return fail("retry", "잠시 후 다시 시도해 주세요");
+    if (!data?.result?.path?.length) return fail("notFound", "경로를 찾지 못했어요");
+
     // 여러 후보 경로를 정규화해서 반환 (필터 탭이 이 중에서 골라 씀)
-    const paths = (data.result.path as any[]).slice(0, 8);
+    const paths = (data.result.path as Record<string, any>[]).slice(0, 8);
     const options = paths.map((path) => {
       const info = path.info;
-      const legs = (path.subPath || []).map((p: any) => {
+      const legs = (path.subPath || []).map((p: Record<string, any>) => {
         if (p.trafficType === 1) {
           const laneName = p.lane?.[0]?.name || "지하철";
           return {
             type: "subway",
             line: shortLine(laneName),
-            color: colorFor(laneName),
+            color: lineColor(laneName),
             start: p.startName,
             end: p.endName,
             stationCount: p.stationCount,
@@ -70,7 +103,7 @@ export async function GET(request: Request) {
             // 실제 시간표 조회용: 승차역 ODsay ID + 상행(1)/하행(2)
             stationID: p.startID ?? null,
             wayCode: p.wayCode ?? null,
-            stations: (p.passStopList?.stations || []).map((s: any) => s.stationName),
+            stations: (p.passStopList?.stations || []).map((x: { stationName: string }) => x.stationName),
           };
         }
         if (p.trafficType === 3) {
@@ -89,6 +122,8 @@ export async function GET(request: Request) {
 
     return Response.json({ from, to, options });
   } catch (err) {
-    return Response.json({ error: String(err), options: [] });
+    // 연결이 끊긴 경우(호출 몰림 등) — 사용자에겐 다시 시도를 안내합니다
+    console.error("[/api/route]", err);
+    return fail("retry", "잠시 후 다시 시도해 주세요");
   }
 }

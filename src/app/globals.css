@@ -427,3 +427,10 @@ button{font-family:inherit}
 /* 토스트 */
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#20262E;color:#fff;font-size:13px;font-weight:600;padding:12px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);z-index:30;animation:fade .15s ease;max-width:88%;text-align:center;line-height:1.4}
 .toast b{color:#8FBEF0}
+
+/* ---- 경로 오류 안내 ---- */
+.route-err{display:flex;flex-direction:column;align-items:center;gap:7px;padding:18px 4px 10px;text-align:center}
+.route-err b{font-size:14px;font-weight:700;color:var(--ink)}
+.route-err small{font-size:12px;color:var(--muted);font-weight:550}
+.err-retry{margin-top:4px;background:var(--accent);border:none;border-radius:10px;color:#fff;font-family:inherit;font-size:13px;font-weight:700;padding:10px 22px;cursor:pointer}
+.err-retry:active{opacity:.85}

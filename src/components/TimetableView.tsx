@@ -111,10 +111,11 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
         {rows.length === 0 ? (
           <div className="tt-empty">이 시간대에는 열차가 없어요</div>
         ) : (
-          rows.map((d) => (
+          rows.map((d, i) => (
+            // 같은 시각·같은 행선지가 두 번 나올 수 있어 순번을 키에 함께 씁니다
             <div
               className={`tt-row${d.min === nextMin ? " next" : ""}`}
-              key={`${d.min}-${d.dest}`}
+              key={`${d.min}-${d.dest}-${i}`}
             >
               <span className="tt-time">
                 {hhmm(d.min)}
