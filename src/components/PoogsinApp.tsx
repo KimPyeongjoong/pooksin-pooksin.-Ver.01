@@ -64,19 +64,16 @@ type RouteData = {
 };
 type RouteTab = "time" | "transfer" | "fare" | "last";
 
-// 칸 번호는 열차 편성에 고정되어 있어서, 같은 열차라도 진행 방향에 따라
-// 1번 칸이 맨 앞일 수도, 맨 뒤일 수도 있습니다.
-// 화면은 위쪽이 언제나 진행 방향이므로, 방향에 맞춰 나열 순서를 자동으로 정합니다.
+// 칸 번호는 "열차 진행 방향 기준"으로 매겨집니다. 즉 1번 칸이 언제나 맨 앞입니다.
 //
-// ⚠️ 어느 쪽 끝이 1호차인지는 공개 데이터에 없어 아래 가정을 씁니다.
-//    (하행 = 1번 칸이 맨 앞) 실제 승강장 표기와 다르면 이 값만 false로 바꾸면 됩니다.
-const CAR_ONE_LEADS_ON_DOWN = true;
-
-function orderCars(wayCode: number | null | undefined, cars: number): number[] {
-  const list = Array.from({ length: Math.max(1, cars) }, (_, i) => i + 1);
-  const isDown = wayCode === 2; // 1=상행/외선, 2=하행/내선
-  const oneAtFront = isDown === CAR_ONE_LEADS_ON_DOWN;
-  return oneAtFront ? list : list.reverse();
+// 확인 방법(2026-08-18): 상·하행이 한 승강장을 쓰는 섬식 환승역에서, 같은 환승 통로를
+// 양쪽 방향으로 접근해 ODsay가 주는 빠른환승 칸 번호를 비교했습니다.
+//   교대(2→3호선) 10-4 ↔ 1-1 · 신도림(2→1호선) 7-2 ↔ 4-3 · 잠실(2→8호선) 1-1 ↔ 10-3
+// 같은 물리적 위치인데 방향이 바뀌자 번호가 정확히 대칭으로 뒤집혔습니다.
+// 번호가 차량에 고정돼 있다면 방향이 바뀌어도 같은 번호가 나와야 하므로,
+// 이는 번호가 진행 방향 기준이라는 뜻입니다 → 화면에서 순서를 뒤집을 필요가 없습니다.
+function orderCars(cars: number): number[] {
+  return Array.from({ length: Math.max(1, cars) }, (_, i) => i + 1);
 }
 
 // 여러 후보 경로 중 탭 기준으로 최적 하나 고르기
@@ -327,7 +324,7 @@ export default function PoogsinApp() {
     carLeg?.end,
   ]);
   // 진행 방향(위쪽)에 맞춘 칸 나열 순서
-  const carOrder = orderCars(carLeg?.wayCode, carInfo.cars);
+  const carOrder = orderCars(carInfo.cars);
 
   // 빠른 환승 칸 번호 (ODsay door가 "1-1"처럼 오면 앞 숫자가 칸 번호)
   const quickCar = (() => {
@@ -861,7 +858,7 @@ export default function PoogsinApp() {
               ))}
             </div>
             <div className="cars-note">
-              맨 위가 열차 진행 방향 · {carLeg?.line} {carInfo.cars}량
+              1번 칸이 맨 앞(진행 방향) · {carLeg?.line} {carInfo.cars}량
               {carInfo.label ? ` (${carInfo.label})` : ""}
               {!carInfo.known ? " · 량수 자료 없어 기본값" : ""}
             </div>
