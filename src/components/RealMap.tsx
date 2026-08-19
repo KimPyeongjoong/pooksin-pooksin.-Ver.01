@@ -6,24 +6,13 @@
 
 import { useMemo, useRef, useState } from "react";
 import coordsRaw from "@/lib/station-coords.json";
+import { lineColor } from "@/lib/line-colors";
 import { STATION_GROUPS } from "@/lib/stations";
 
 const coords = coordsRaw as Record<string, { x: number; y: number }>;
 
-// 노선 → 색상 (수도권 주요 노선)
-const LINE_COLORS: Record<string, string> = {
-  "1호선": "#0052A4", "2호선": "#00A84D", "3호선": "#EF7C1C", "4호선": "#00A5DE",
-  "5호선": "#996CAC", "6호선": "#CD7C2F", "7호선": "#747F00", "8호선": "#E6186C",
-  "9호선": "#BDB092", "신분당선": "#D31145", "분당선": "#FABE00", "수인분당선": "#FABE00",
-  "수인선": "#FABE00", "경의중앙선": "#77C4A3", "공항철도1호선": "#0090D2", "공항철도": "#0090D2",
-  "경춘선": "#0C8E72", "경강선": "#003DA5", "서해선": "#8FC31F", "우이신설선": "#B7C452",
-  "김포골드라인": "#AD8605", "신림선": "#6789CA", "의정부경전철": "#FDA600",
-  "용인경전철": "#509F22", "인천선": "#7CA8D5", "인천1호선": "#7CA8D5", "인천2호선": "#ED8B00",
-  "자기부상철도": "#F5A200",
-};
-function lineColor(line: string): string {
-  return LINE_COLORS[line] ?? "#9AA1AC";
-}
+// 노선 색상은 src/lib/line-colors.ts 한 곳에서만 관리합니다.
+
 
 // ── 좌표 → 화면좌표 변환 (모듈 로드 시 1회 계산) ──
 type Pt = { name: string; sx: number; sy: number; color: string };

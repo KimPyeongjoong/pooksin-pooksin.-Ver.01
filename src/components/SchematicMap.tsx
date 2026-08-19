@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import linemap from "@/lib/linemap.json";
+import { lineColor } from "@/lib/line-colors";
 
 type Node = { x: number; y: number; m?: boolean; ind?: boolean; name?: string; cd?: string; lp?: string; mk?: string };
 type Line = { key: string; label: string; indicator: string; color: string; width: number; nodes: Node[] };
@@ -15,7 +16,7 @@ const LINES = linemap as Line[];
 const BADGES: { x: number; y: number; text: string; color: string }[] = [];
 for (const l of LINES)
   for (const n of l.nodes)
-    if (n.ind) BADGES.push({ x: n.x, y: n.y, text: l.indicator, color: l.color });
+    if (n.ind) BADGES.push({ x: n.x, y: n.y, text: l.indicator, color: lineColor(l.label) });
 
 // 전체 좌표 범위 → viewBox 계산 (모듈 로드 시 1회)
 const BOUNDS = (() => {
@@ -51,7 +52,7 @@ const MARKERS: Marker[] = [];
 for (const l of LINES)
   for (const n of l.nodes)
     if (n.name && !n.ind)
-      MARKERS.push({ name: n.name, x: n.x, y: n.y, color: l.color, interchange: n.mk === "interchange", lp: n.lp });
+      MARKERS.push({ name: n.name, x: n.x, y: n.y, color: lineColor(l.label), interchange: n.mk === "interchange", lp: n.lp });
 
 // 환승역은 여러 노선에 중복 등장 → 이름 기준으로 하나만 남기기
 const interNames = new Set(MARKERS.filter((m) => m.interchange).map((m) => m.name));
@@ -133,7 +134,7 @@ export default function SchematicMap({
           line.nodes.slice(a, b + 1).forEach((n, i) => {
             d += (i === 0 ? "M" : "L") + n.x + " " + n.y;
           });
-          return { d, color: line.color };
+          return { d, color: lineColor(line.label) };
         })
         .filter((x): x is { d: string; color: string } => x !== null)
     : [];
@@ -269,7 +270,7 @@ export default function SchematicMap({
               key={l.key}
               d={PATHS[i]}
               fill="none"
-              stroke={l.color}
+              stroke={lineColor(l.label)}
               strokeWidth={l.width * 0.32}
               strokeLinejoin="round"
               strokeLinecap="round"

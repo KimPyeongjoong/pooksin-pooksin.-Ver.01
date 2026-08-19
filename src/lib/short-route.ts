@@ -64,7 +64,7 @@ function findSegment(a: string, b: string) {
     const j = names.indexOf(b);
     if (i < 0 || j < 0 || i === j) continue;
     const stations = i < j ? names.slice(i, j + 1) : names.slice(j, i + 1).reverse();
-    return { line: l.label, color: l.color, stations };
+    return { line: l.label, color: lineColor(l.label), stations };
   }
   return null;
 }
@@ -166,7 +166,7 @@ export async function buildShortRoute(from: string, to: string): Promise<ShortRo
   const leg: ShortLeg = {
     type: "subway",
     line: seg.line,
-    color: seg.color || lineColor(seg.line),
+    color: seg.color,
     start: from,
     end: to,
     stationCount,

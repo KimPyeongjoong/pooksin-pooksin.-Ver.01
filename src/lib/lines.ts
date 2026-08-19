@@ -2,6 +2,7 @@
 // (도착정보 시트의 "‹ 이전역 · 현재역 · 다음역 ›" 스텝퍼용)
 
 import linemap from "./linemap.json";
+import { lineColor } from "./line-colors";
 
 type Node = { x: number; y: number; name?: string };
 type Line = { key: string; label: string; indicator: string; color: string; nodes: Node[] };
@@ -39,7 +40,7 @@ export function lineStations(lineName: string): string[] {
 export function linesAtStation(name: string): { label: string; color: string; indicator: string }[] {
   return LINES.filter((l) => l.nodes.some((n) => n.name === name)).map((l) => ({
     label: l.label,
-    color: l.color,
+    color: lineColor(l.label),
     indicator: l.indicator,
   }));
 }
@@ -53,7 +54,7 @@ export function stationNeighbors(name: string): Neighbors | null {
       return {
         line: l.label,
         indicator: l.indicator,
-        color: l.color,
+        color: lineColor(l.label),
         prev: named[idx - 1]?.name ?? null,
         next: named[idx + 1]?.name ?? null,
       };

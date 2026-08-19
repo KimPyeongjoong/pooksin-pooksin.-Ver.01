@@ -16,6 +16,7 @@ import { searchStations, STATION_COUNT } from "@/lib/stations";
 import { stationNeighbors } from "@/lib/lines";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
 import { carsForLeg } from "@/lib/car-counts";
+import { lineColor } from "@/lib/line-colors";
 
 // 화면(뷰) 종류
 type View = "home" | "car" | "seat" | "timetable" | "live";
@@ -1110,15 +1111,7 @@ function fmtAmPm(min: number): string {
   return `${ap} ${h12}:${String(m).padStart(2, "0")}`;
 }
 
-// 노선명 → 대표 색상 (배지용)
-function lineColor(line: string): string {
-  const map: Record<string, string> = {
-    "1호선": "#0052A4", "2호선": "#00A84D", "3호선": "#EF7C1C", "4호선": "#00A5DE",
-    "5호선": "#996CAC", "6호선": "#CD7C2F", "7호선": "#747F00", "8호선": "#E6186C",
-    "9호선": "#BDB092",
-  };
-  return map[line] ?? "#6B7280";
-}
+
 
 // ---- 작은 조각 컴포넌트들 ----
 
