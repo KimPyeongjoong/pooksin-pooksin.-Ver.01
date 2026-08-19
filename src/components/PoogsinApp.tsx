@@ -15,6 +15,7 @@ import {
 import { searchStations, STATION_COUNT } from "@/lib/stations";
 import { stationNeighbors } from "@/lib/lines";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
+import { carsForLeg } from "@/lib/car-counts";
 
 // 화면(뷰) 종류
 type View = "home" | "car" | "seat" | "timetable" | "live";
@@ -63,9 +64,6 @@ type RouteData = {
 };
 type RouteTab = "time" | "transfer" | "fare" | "last";
 
-// 열차 칸 번호. ⚠️ 아직 목업입니다 — 실제 칸 수는 노선마다 다릅니다(8칸·6칸 등).
-const CAR_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
 // 칸 번호는 열차 편성에 고정되어 있어서, 같은 열차라도 진행 방향에 따라
 // 1번 칸이 맨 앞일 수도, 맨 뒤일 수도 있습니다.
 // 화면은 위쪽이 언제나 진행 방향이므로, 방향에 맞춰 나열 순서를 자동으로 정합니다.
@@ -74,10 +72,11 @@ const CAR_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 //    (하행 = 1번 칸이 맨 앞) 실제 승강장 표기와 다르면 이 값만 false로 바꾸면 됩니다.
 const CAR_ONE_LEADS_ON_DOWN = true;
 
-function orderCars(wayCode?: number | null): number[] {
+function orderCars(wayCode: number | null | undefined, cars: number): number[] {
+  const list = Array.from({ length: Math.max(1, cars) }, (_, i) => i + 1);
   const isDown = wayCode === 2; // 1=상행/외선, 2=하행/내선
   const oneAtFront = isDown === CAR_ONE_LEADS_ON_DOWN;
-  return oneAtFront ? CAR_NUMBERS : [...CAR_NUMBERS].reverse();
+  return oneAtFront ? list : list.reverse();
 }
 
 // 여러 후보 경로 중 탭 기준으로 최적 하나 고르기
@@ -321,15 +320,26 @@ export default function PoogsinApp() {
   // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
   const journeyStart = boardAt - preBoardMin;
 
+  // 이 구간 열차가 몇 량인지 (노선별로 다르고, 지선·셔틀은 더 짧습니다)
+  const carInfo = carsForLeg(carLeg?.line ?? "", [
+    ...(carLeg?.stations ?? []),
+    carLeg?.start,
+    carLeg?.end,
+  ]);
   // 진행 방향(위쪽)에 맞춘 칸 나열 순서
-  const carOrder = orderCars(carLeg?.wayCode);
+  const carOrder = orderCars(carLeg?.wayCode, carInfo.cars);
 
   // 빠른 환승 칸 번호 (ODsay door가 "1-1"처럼 오면 앞 숫자가 칸 번호)
   const quickCar = (() => {
     const q = quickTransfer(carLeg?.door);
     const n = q ? Number(q.split("-")[0]) : NaN;
-    return Number.isFinite(n) && n >= 1 && n <= 10 ? n : 0;
+    return Number.isFinite(n) && n >= 1 && n <= carInfo.cars ? n : 0;
   })();
+
+  // 짧은 열차로 바뀌면 없는 칸이 선택된 채로 남지 않게 맞춰줍니다.
+  useEffect(() => {
+    setPickedCar((c) => Math.min(c, carInfo.cars));
+  }, [carInfo.cars]);
 
   function stepTrain(delta: number) {
     if (!timetable) {
@@ -845,13 +855,16 @@ export default function PoogsinApp() {
                 >
                   <span className="carrow-n">{n}번 칸</span>
                   <span className="carrow-tags">
-                    {n === 5 && <em className="ct cool">약냉방</em>}
                     {n === quickCar && <em className="ct fast">빠른환승</em>}
                   </span>
                 </button>
               ))}
             </div>
-            <div className="cars-note">맨 위가 열차 진행 방향입니다</div>
+            <div className="cars-note">
+              맨 위가 열차 진행 방향 · {carLeg?.line} {carInfo.cars}량
+              {carInfo.label ? ` (${carInfo.label})` : ""}
+              {!carInfo.known ? " · 량수 자료 없어 기본값" : ""}
+            </div>
 
             <div className="infobox">
               <b style={{ color: "var(--ink)" }}>{pickedCar}번 칸</b> 선택됨
