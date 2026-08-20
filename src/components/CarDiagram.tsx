@@ -2,7 +2,7 @@
 
 // 열차 한 칸의 좌석 도식
 //
-// - 진행 방향은 언제나 위쪽입니다 (탑승 칸 선택 화면과 같은 규칙).
+// - 진행 방향은 언제나 위쪽입니다. 통로에 위쪽 화살표를 줄지어 놓아 방향을 알려줍니다.
 // - 좌석은 실제 의자 모양으로 그립니다. 벽쪽에 등받이가 있고 통로를 향해 앉습니다.
 // - 앉을 수 있는 좌석에는 번호를 붙이지 않습니다(누를 수 있다는 것만 보이면 됩니다).
 
@@ -14,7 +14,6 @@ type Props = {
   seats: Record<string, SeatState>;
   pickedSeat: string | null;
   revealed: boolean;
-  wayLabel?: string;
   onTap: (seat: Seat) => void;
 };
 
@@ -68,7 +67,6 @@ function Side({ blocks, seats, pickedSeat, onTap }: {
           {bi < blocks.length - 1 && (
             <div className="cd-door">
               <span />
-              <b>문</b>
               <span />
             </div>
           )}
@@ -78,35 +76,36 @@ function Side({ blocks, seats, pickedSeat, onTap }: {
   );
 }
 
-export default function CarDiagram({ layout, seats, pickedSeat, revealed, wayLabel, onTap }: Props) {
-  const counts = Object.values(seats);
-  const taken = counts.filter((s) => s.kind === "occupied").length;
+export default function CarDiagram({ layout, seats, pickedSeat, revealed, onTap }: Props) {
+  const taken = Object.values(seats).filter((s) => s.kind === "occupied").length;
+  // 통로에 놓을 진행 방향 화살표 개수 (좌석 줄 길이에 맞춰)
+  const arrows = Math.max(6, layout.left.reduce((a, b) => a + b.seats.length, 0) - 3);
 
   return (
     <div className="cd-wrap">
-      <div className="cd-dir">
-        <span className="cd-arrow" />
-        {wayLabel ? `${wayLabel} 방면` : "진행 방향"}
-      </div>
-
-      <div className={`cd-car${revealed ? " revealed" : ""}`}>
-        <div className="cd-head">앞</div>
-        <div className="cd-body">
-          <Side blocks={layout.left} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
-          <div className="cd-aisle">
-            <span>통</span>
-            <span>로</span>
-          </div>
-          <Side blocks={layout.right} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
-        </div>
-        <div className="cd-head">뒤</div>
-      </div>
-
+      {/* 범례를 위로 올려 좌석을 보기 전에 색을 먼저 익히게 합니다 */}
       <div className="cd-legend">
         <span><i className="cd-lg free" />앉을 수 있음</span>
         <span><i className="cd-lg occ" />하차정보 등록됨</span>
         <span><i className="cd-lg pri" />교통약자석</span>
         <span><i className="cd-lg preg" />임산부배려석</span>
+      </div>
+
+      <div className="cd-dir">
+        <span className="cd-arrow" />
+        열차 진행 방향
+      </div>
+
+      <div className={`cd-car${revealed ? " revealed" : ""}`}>
+        <div className="cd-body">
+          <Side blocks={layout.left} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
+          <div className="cd-aisle" aria-hidden="true">
+            {Array.from({ length: arrows }, (_, i) => (
+              <span className="cd-up" key={i} />
+            ))}
+          </div>
+          <Side blocks={layout.right} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
+        </div>
       </div>
 
       <div className="cd-note">

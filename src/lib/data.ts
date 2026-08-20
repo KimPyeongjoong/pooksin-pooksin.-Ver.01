@@ -21,10 +21,11 @@ function hash(str: string): number {
   return Math.abs(h);
 }
 
-export function makeMockSeats(ids: string[]): Record<string, SeatState> {
+// seed에 칸 번호·노선을 넣어야 칸을 옮길 때 좌석 상황이 달라 보입니다.
+export function makeMockSeats(ids: string[], seed = ""): Record<string, SeatState> {
   const out: Record<string, SeatState> = {};
   for (const id of ids) {
-    const h = hash(id);
+    const h = hash(seed + "|" + id);
     if (h % 100 < 28) out[id] = { kind: "occupied", stopsLeft: (h % 6) + 1 };
   }
   return out;

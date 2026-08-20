@@ -352,7 +352,9 @@ export default function PoogsinApp() {
 
   // 칸이 바뀌면 그 칸의 좌석을 새로 채웁니다 (지금은 목업, 나중에 서버 데이터로 교체)
   useEffect(() => {
-    setSeats(makeMockSeats(allSeats(seatLayout).map((x) => x.id)));
+    setSeats(
+      makeMockSeats(allSeats(seatLayout).map((x) => x.id), `${carLeg?.line ?? ""}-${pickedCar}`)
+    );
     setPickedSeat(null);
     setAlightFor(null);
     setRevealed(false);
@@ -919,13 +921,46 @@ export default function PoogsinApp() {
             </button>
             {pickedCar}번 칸 좌석
           </div>
-          <div className="scroll pad">
-            <div className="banner">
-              <span className="bnum">{pickedCar}</span>
-              <span className="btxt">
-                타고 계신 <b>{pickedCar}번 칸</b>에<br />
-                하차역 입력된 좌석 <b>{regCount}개</b>
+          {/* 칸 이동: ‹ 이전 칸 · [n번 칸 ▾] · 다음 칸 › */}
+          <div className="carnav">
+            <button
+              className="carnav-arrow"
+              onClick={() => setPickedCar((c) => Math.max(1, c - 1))}
+              disabled={pickedCar <= 1}
+              aria-label="이전 칸"
+            >
+              ‹
+            </button>
+            <div className="carnav-pick">
+              <select
+                value={pickedCar}
+                onChange={(e) => setPickedCar(Number(e.target.value))}
+                aria-label="칸 선택"
+              >
+                {carOrder.map((n) => (
+                  <option key={n} value={n}>
+                    {n}번 칸
+                  </option>
+                ))}
+              </select>
+              <span className="carnav-label">
+                {pickedCar}번 칸
+                <i className="carnav-caret" />
               </span>
+            </div>
+            <button
+              className="carnav-arrow"
+              onClick={() => setPickedCar((c) => Math.min(carInfo.cars, c + 1))}
+              disabled={pickedCar >= carInfo.cars}
+              aria-label="다음 칸"
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="scroll pad">
+            <div className="cd-sum">
+              이 칸에 하차역이 등록된 좌석 <b>{regCount}개</b>
             </div>
 
             <CarDiagram
@@ -933,7 +968,6 @@ export default function PoogsinApp() {
               seats={seats}
               pickedSeat={pickedSeat}
               revealed={revealed}
-              wayLabel={carLeg?.way ? withYeok(carLeg.way) : undefined}
               onTap={tapSeat}
             />
 

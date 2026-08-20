@@ -9,8 +9,10 @@
 //   일반석(7인석) 6개 + 교통약자석(3인석) 4개 = 서울시 자료와 일치합니다.
 //   최신 차량은 일반석이 6인석이라 48석인 경우도 있습니다(아래 GENERAL_SEATS 참고).
 //
-// 임산부배려석은 1~8호선 기준 한 칸에 2석입니다(양쪽 벽면에 1석씩).
-// ⚠️ 정확히 몇 번째 자리인지는 공개 자료가 없어 객실 가운데 자리로 표시합니다.
+// 임산부배려석은 1~8호선 기준 한 칸에 2석이고, 서울시 안내에 따르면
+// "출입문 근처"에 있습니다. 즉 긴 의자의 한가운데가 아니라 문 옆 끝자리입니다.
+// (좌석·등받이·바닥까지 분홍색으로 칠해 눈에 띄게 해두었습니다)
+// → 가운데 일반석 블록의 "양 끝 중 문 쪽" 자리를 임산부배려석으로 둡니다.
 
 export type SeatKind = "general" | "priority" | "pregnant";
 
@@ -38,12 +40,15 @@ const HEAVY_SIDE = [3, 7, 7, 7, 3]; // 교통약자석 3 / 일반석 7 × 3 / �
 const LIGHT_SIDE = [3, 5, 3];
 
 function buildSide(counts: number[], side: "left" | "right"): Block[] {
-  // 가운데 블록의 가운데 자리를 임산부배려석으로 둡니다 (한쪽에 1석 → 한 칸에 2석)
+  // 가운데 일반석 블록의 끝자리(문 옆)를 임산부배려석으로 (한쪽에 1석 → 한 칸에 2석)
   const midBlock = Math.floor(counts.length / 2);
+  // 왼쪽 벽면은 블록의 앞쪽 끝, 오른쪽 벽면은 뒤쪽 끝 — 서로 어긋나게 두어
+  // 한 칸 안에서 두 자리가 같은 문에 몰리지 않게 합니다.
   return counts.map((n, b) => ({
     seats: Array.from({ length: n }, (_, i) => {
       const isEndBlock = b === 0 || b === counts.length - 1;
-      const isPregnant = b === midBlock && i === Math.floor(n / 2);
+      const pregnantIdx = side === "left" ? 0 : n - 1;
+      const isPregnant = b === midBlock && i === pregnantIdx;
       const kind: SeatKind = isEndBlock ? "priority" : isPregnant ? "pregnant" : "general";
       return { id: `${side === "left" ? "L" : "R"}${b}-${i}`, kind, side };
     }),
