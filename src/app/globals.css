@@ -524,3 +524,21 @@ button{font-family:inherit}
   font-family:inherit;font-size:14px;color:var(--ink);background:var(--surface-2);outline:none}
 .alight-input::placeholder{color:var(--faint);font-weight:500}
 .alight-input:focus{border-color:var(--accent);background:var(--surface)}
+
+/* 하차역 직접 검색: 입력칸 → 선택 칩 → [하차등록] */
+.alight-field{display:flex;align-items:center;gap:8px;border:1px solid var(--line-2);border-radius:11px;
+  background:var(--surface-2);padding:6px 8px 6px 6px;min-height:48px}
+.alight-field:focus-within{border-color:var(--accent);background:var(--surface)}
+.alight-field.has-pick{border-color:var(--accent);background:var(--surface)}
+.alight-input{flex:1;border:none;background:none;outline:none;padding:6px 8px;
+  font-family:inherit;font-size:14px;color:var(--ink);min-width:0}
+.alight-input::placeholder{color:var(--faint);font-weight:500}
+.alight-chip{flex:1;display:inline-flex;align-items:center;gap:8px;align-self:stretch;
+  background:var(--accent-weak);border:1.5px solid var(--accent);border-radius:9px;
+  padding:0 6px 0 12px;color:var(--accent-ink);font-size:14px;font-weight:750;min-width:0}
+.alight-x{flex:none;width:22px;height:22px;border:none;border-radius:50%;background:var(--accent);
+  color:#fff;font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center;margin-left:auto}
+.alight-go{flex:none;border:none;border-radius:9px;background:var(--accent);color:#fff;
+  font-family:inherit;font-size:13px;font-weight:750;padding:10px 14px;cursor:pointer;white-space:nowrap}
+.alight-go:active{opacity:.85}
+.alight-none{padding:16px 14px;text-align:center;color:var(--warn);font-size:12.5px;font-weight:650;line-height:1.5}

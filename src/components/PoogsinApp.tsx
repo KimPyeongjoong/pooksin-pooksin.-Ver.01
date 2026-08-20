@@ -13,7 +13,7 @@ import {
   type SeatState,
 } from "@/lib/data";
 import { searchStations, STATION_COUNT } from "@/lib/stations";
-import { stationNeighbors } from "@/lib/lines";
+import { stationNeighbors, lineStations } from "@/lib/lines";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
 import { carsForLeg } from "@/lib/car-counts";
 import { lineColor } from "@/lib/line-colors";
@@ -139,6 +139,7 @@ export default function PoogsinApp() {
   const [pickedSeat, setPickedSeat] = useState<string | null>(null);
   const [alightFor, setAlightFor] = useState<string | null>(null); // 하차역을 입력할 좌석 id
   const [alightQuery, setAlightQuery] = useState(""); // 하차역 직접 검색어
+  const [alightPicked, setAlightPicked] = useState<string | null>(null); // 검색으로 고른 역(등록 전)
   const [seats, setSeats] = useState<Record<string, SeatState>>({});
   const [toast, setToast] = useState<string | null>(null);
 
@@ -358,6 +359,21 @@ export default function PoogsinApp() {
   // 최종 목적지가 아니면 환승역입니다
   const isTransfer = !!legEnd && !!arr && legEnd !== arr;
 
+  // 하차역 직접 검색은 "이 호선 전체"를 대상으로 합니다.
+  // (경로에 없는 역이라도 같은 호선이면 내릴 수 있으니까요)
+  const lineAllStations = lineStations(carLeg?.line ?? "");
+  const alightMatches = alightQuery.trim()
+    ? lineAllStations.filter((n) => n !== carLeg?.start && n.includes(alightQuery.trim())).slice(0, 20)
+    : [];
+
+  // 승차역에서 몇 정거장인지 (노선 위 순서로 계산)
+  function stopsTo(station: string): number {
+    const a = lineAllStations.indexOf(carLeg?.start ?? "");
+    const b = lineAllStations.indexOf(station);
+    if (a < 0 || b < 0) return Math.max(1, legStations.indexOf(station) + 1);
+    return Math.max(1, Math.abs(b - a));
+  }
+
   // 칸이 바뀌면 그 칸의 좌석을 새로 채웁니다 (지금은 목업, 나중에 서버 데이터로 교체)
   useEffect(() => {
     setSeats(
@@ -416,6 +432,7 @@ export default function PoogsinApp() {
     setPickedSeat(seat.id);
     setAlightFor(seat.id);
     setAlightQuery("");
+    setAlightPicked(null);
   }
 
   // 하차역 선택 → 등록(공급) → 포인트 적립
@@ -1025,31 +1042,59 @@ export default function PoogsinApp() {
                   </button>
                 )}
 
-                {/* 그 역에서 안 내리는 경우: 이 구간의 다른 역을 고를 수 있게 */}
+                {/* 그 역에서 안 내리는 경우: 같은 호선의 다른 역을 직접 검색 */}
                 <div className="alight-other">
-                  <input
-                    className="alight-input"
-                    placeholder="하차역 입력하기"
-                    value={alightQuery}
-                    onChange={(e) => setAlightQuery(e.target.value)}
-                  />
-                  {alightQuery.trim() && (
-                    <div className="stn-list" style={{ marginTop: 8, maxHeight: 200, overflowY: "auto" }}>
-                      {legStations
-                        .filter((n) => n.includes(alightQuery.trim()))
-                        .map((n, i) => (
-                          <button
-                            className="stn-item"
-                            key={n}
-                            onClick={() => registerAlight(n, legStations.indexOf(n) + 1)}
-                          >
-                            <span>{withYeok(n)}</span>
-                            <small>{i === 0 ? "" : ""}</small>
-                          </button>
-                        ))}
-                      {legStations.filter((n) => n.includes(alightQuery.trim())).length === 0 && (
-                        <div className="search-hint" style={{ padding: 14 }}>
-                          이 구간에 없는 역이에요
+                  <div className={`alight-field${alightPicked ? " has-pick" : ""}`}>
+                    {alightPicked ? (
+                      <span className="alight-chip">
+                        {withYeok(alightPicked)}
+                        <button
+                          className="alight-x"
+                          onClick={() => {
+                            setAlightPicked(null);
+                            setAlightQuery("");
+                          }}
+                          aria-label="선택 취소"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ) : (
+                      <input
+                        className="alight-input"
+                        placeholder="하차역 입력하기"
+                        value={alightQuery}
+                        onChange={(e) => setAlightQuery(e.target.value)}
+                      />
+                    )}
+                    {alightPicked && (
+                      <button
+                        className="alight-go"
+                        onClick={() => registerAlight(alightPicked, stopsTo(alightPicked))}
+                      >
+                        하차등록
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 자동완성: 누르면 등록이 아니라 위 칸에 선택으로 들어갑니다 */}
+                  {!alightPicked && alightQuery.trim() && (
+                    <div className="stn-list" style={{ marginTop: 8, maxHeight: 220, overflowY: "auto" }}>
+                      {alightMatches.map((n) => (
+                        <button
+                          className="stn-item"
+                          key={n}
+                          onClick={() => {
+                            setAlightPicked(n);
+                            setAlightQuery(n);
+                          }}
+                        >
+                          <span>{withYeok(n)}</span>
+                        </button>
+                      ))}
+                      {alightMatches.length === 0 && (
+                        <div className="alight-none">
+                          {carLeg?.line ?? "이 호선"}만 하차 등록 가능합니다.
                         </div>
                       )}
                     </div>
