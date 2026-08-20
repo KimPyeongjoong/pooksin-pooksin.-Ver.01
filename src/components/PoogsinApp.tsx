@@ -6,7 +6,7 @@ import TimetableView from "./TimetableView";
 import LiveTrainView from "./LiveTrainView";
 import TrainStrip, { type TrainPos } from "./TrainStrip";
 import {
-  CAR_SEATS,
+  makeMockSeats,
   MOCK_ARRIVALS,
   REMAINING_STATIONS,
   LEDGER,
@@ -17,6 +17,8 @@ import { stationNeighbors } from "@/lib/lines";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
 import { carsForLeg } from "@/lib/car-counts";
 import { lineColor } from "@/lib/line-colors";
+import { carLayout, allSeats, type Seat } from "@/lib/car-layout";
+import CarDiagram from "./CarDiagram";
 
 // 화면(뷰) 종류
 type View = "home" | "car" | "seat" | "timetable" | "live";
@@ -135,10 +137,8 @@ export default function PoogsinApp() {
   const [points, setPoints] = useState(1240);
   const [revealed, setRevealed] = useState(false);
   const [pickedSeat, setPickedSeat] = useState<string | null>(null);
-  const [alightFor, setAlightFor] = useState<{ row: "top" | "bottom"; i: number } | null>(null);
-  const [seats, setSeats] = useState<{ top: SeatState[]; bottom: SeatState[] }>(() =>
-    structuredClone(CAR_SEATS)
-  );
+  const [alightFor, setAlightFor] = useState<string | null>(null); // 하차역을 입력할 좌석 id
+  const [seats, setSeats] = useState<Record<string, SeatState>>({});
   const [toast, setToast] = useState<string | null>(null);
 
   // 실시간 도착정보
@@ -347,6 +347,17 @@ export default function PoogsinApp() {
     return Number.isFinite(n) && n >= 1 && n <= carInfo.cars ? n : 0;
   })();
 
+  // 이 칸의 실제 좌석 배치 (진행 방향 기준)
+  const seatLayout = carLayout(carLeg?.line ?? "", carInfo.cars);
+
+  // 칸이 바뀌면 그 칸의 좌석을 새로 채웁니다 (지금은 목업, 나중에 서버 데이터로 교체)
+  useEffect(() => {
+    setSeats(makeMockSeats(allSeats(seatLayout).map((x) => x.id)));
+    setPickedSeat(null);
+    setAlightFor(null);
+    setRevealed(false);
+  }, [carLeg?.line, carInfo.cars, pickedCar]);
+
   // 짧은 열차로 바뀌면 없는 칸이 선택된 채로 남지 않게 맞춰줍니다.
   useEffect(() => {
     setPickedCar((c) => Math.min(c, carInfo.cars));
@@ -369,7 +380,7 @@ export default function PoogsinApp() {
     });
   }
 
-  const regCount = seats.top.concat(seats.bottom).filter((s) => s.kind === "occupied").length;
+  const regCount = Object.values(seats).filter((s) => s.kind === "occupied").length;
   const neighbors = selectedStation ? stationNeighbors(selectedStation) : null;
 
   // 지도 포커스: 출발~도착 사이 "구간"만 강조 + 경로 위 역만 진하게
@@ -386,20 +397,16 @@ export default function PoogsinApp() {
       : null;
 
   // 좌석 클릭 (빈 좌석 → 하차역 입력 모달)
-  function tapSeat(row: "top" | "bottom", i: number, s: SeatState) {
-    if (s.kind !== "free") return;
-    setPickedSeat(`${row}-${i}`);
-    setAlightFor({ row, i });
+  function tapSeat(seat: Seat) {
+    if (seats[seat.id]?.kind === "occupied") return;
+    setPickedSeat(seat.id);
+    setAlightFor(seat.id);
   }
 
   // 하차역 선택 → 등록(공급) → 포인트 적립
   function registerAlight(stationName: string, stopsLeft: number) {
     if (!alightFor) return;
-    setSeats((prev) => {
-      const next = structuredClone(prev);
-      next[alightFor.row][alightFor.i] = { kind: "occupied", stopsLeft };
-      return next;
-    });
+    setSeats((prev) => ({ ...prev, [alightFor]: { kind: "occupied", stopsLeft } }));
     setPoints((p) => p + 15);
     setAlightFor(null);
     setPickedSeat(null);
@@ -921,27 +928,14 @@ export default function PoogsinApp() {
               </span>
             </div>
 
-            <div className={`carbody ${revealed ? "revealed" : ""}`}>
-              <div className="aisle">◁ 진행방향</div>
-              <SeatBench row="top" seats={seats.top} pickedSeat={pickedSeat} onTap={tapSeat} />
-              <div className="aisle">· · · · · · 통 로 · · · · · ·</div>
-              <SeatBench row="bottom" seats={seats.bottom} pickedSeat={pickedSeat} onTap={tapSeat} />
-            </div>
-
-            <div className="legendrow">
-              <span>
-                <span className="lgc free" />
-                앉을 수 있음
-              </span>
-              <span>
-                <span className="lgc oc" />
-                점유(등록됨)
-              </span>
-              <span>
-                <span className="lgc pr" />
-                교통약자석
-              </span>
-            </div>
+            <CarDiagram
+              layout={seatLayout}
+              seats={seats}
+              pickedSeat={pickedSeat}
+              revealed={revealed}
+              wayLabel={carLeg?.way ? withYeok(carLeg.way) : undefined}
+              onTap={tapSeat}
+            />
 
             <div className="reveal-hint">
               {revealed ? (
@@ -1151,35 +1145,6 @@ function BottomNav({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   );
 }
 
-function SeatBench({
-  row,
-  seats,
-  pickedSeat,
-  onTap,
-}: {
-  row: "top" | "bottom";
-  seats: SeatState[];
-  pickedSeat: string | null;
-  onTap: (row: "top" | "bottom", i: number, s: SeatState) => void;
-}) {
-  return (
-    <div className={`bench ${row === "bottom" ? "bottom" : ""}`}>
-      {seats.map((s, i) => {
-        const cls =
-          s.kind === "priority" ? "seat pri" : s.kind === "occupied" ? "seat occ" : "seat";
-        const picked = pickedSeat === `${row}-${i}` ? " picked" : "";
-        return (
-          <div className={cls + picked} key={i} onClick={() => onTap(row, i, s)}>
-            {s.kind === "priority" ? "♿" : s.kind === "occupied" ? "" : i + 1}
-            {s.kind === "occupied" && <span className="badge">{s.stopsLeft}역</span>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// 상세 경로 화면 (ODsay 실데이터)
 function RouteDetail({
   route,
   departAt,

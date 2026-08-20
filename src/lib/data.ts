@@ -5,47 +5,30 @@
 // 나중에 이 파일을 실제 API 호출로 교체하면 됩니다.
 // ============================================================
 
+// 좌석 상태 — 좌석의 "종류"(교통약자석 등)는 배치(car-layout.ts)가 정하고,
+// 여기서는 비었는지 / 하차정보가 등록됐는지만 다룹니다.
 export type SeatState =
   | { kind: "free" }
-  | { kind: "priority" }
   | { kind: "occupied"; stopsLeft: number }; // stopsLeft: 하차까지 남은 역 수
 
-// 3번 칸 좌석 배치 (윗줄/아랫줄, 각 14석)
-// 실제로는 열차 형식마다 다르지만 MVP에선 고정 배치를 씁니다.
-export const CAR_SEATS: { top: SeatState[]; bottom: SeatState[] } = {
-  top: [
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 2 },
-    { kind: "free" },
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 1 },
-    { kind: "free" },
-    { kind: "priority" },
-    { kind: "priority" },
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 4 },
-    { kind: "free" },
-    { kind: "free" },
-    { kind: "free" },
-    { kind: "priority" },
-  ],
-  bottom: [
-    { kind: "priority" },
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 1 },
-    { kind: "free" },
-    { kind: "free" },
-    { kind: "priority" },
-    { kind: "priority" },
-    { kind: "free" },
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 3 },
-    { kind: "free" },
-    { kind: "occupied", stopsLeft: 2 },
-    { kind: "free" },
-    { kind: "priority" },
-  ],
-};
+// 좌석 점유 목업.
+// 실제로는 사용자들이 등록한 하차정보(Supabase 예정)로 채워집니다.
+// 지금은 좌석 id로부터 규칙적으로 만들어, 새로고침해도 같은 모습이 나오게 합니다.
+// (무작위로 만들면 서버·브라우저 결과가 달라져 화면이 깜빡입니다.)
+function hash(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+export function makeMockSeats(ids: string[]): Record<string, SeatState> {
+  const out: Record<string, SeatState> = {};
+  for (const id of ids) {
+    const h = hash(id);
+    if (h % 100 < 28) out[id] = { kind: "occupied", stopsLeft: (h % 6) + 1 };
+  }
+  return out;
+}
 
 // 하차역 입력용 남은 역 목록 (신도림 방면, 갈산 이후)
 export const REMAINING_STATIONS = [

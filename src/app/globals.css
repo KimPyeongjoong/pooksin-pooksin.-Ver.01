@@ -438,3 +438,55 @@ button{font-family:inherit}
 .route-err small{font-size:12px;color:var(--muted);font-weight:550}
 .err-retry{margin-top:4px;background:var(--accent);border:none;border-radius:10px;color:#fff;font-family:inherit;font-size:13px;font-weight:700;padding:10px 22px;cursor:pointer}
 .err-retry:active{opacity:.85}
+
+/* ---- 좌석 도식 (진행 방향은 언제나 위쪽) ---- */
+.cd-wrap{padding:4px 0 8px}
+.cd-dir{display:flex;align-items:center;justify-content:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px}
+.cd-arrow{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid var(--line-2)}
+.cd-car{border:2px solid var(--line-2);border-radius:20px;background:var(--surface-2);padding:8px 6px;max-width:290px;margin:0 auto}
+.cd-head{text-align:center;font-size:9.5px;font-weight:700;color:var(--faint);letter-spacing:.2em;padding:2px 0 4px}
+.cd-body{display:grid;grid-template-columns:auto 1fr auto;gap:6px;align-items:start}
+.cd-side{display:flex;flex-direction:column}
+.cd-blockwrap{display:flex;flex-direction:column}
+.cd-block{display:flex;flex-direction:column;gap:3px}
+
+/* 좌석: 방석 + 벽쪽 등받이 (통로를 향해 앉는 롱시트) */
+.cd-seat{position:relative;width:38px;height:19px;border-radius:6px;border:1.5px solid var(--accent);
+  background:var(--accent-weak);cursor:pointer;padding:0;display:grid;place-items:center;
+  font-family:inherit;font-size:9px;line-height:1;transition:transform .08s}
+.cd-seat:active{transform:scale(.93)}
+.cd-seat.left{border-left-width:5px}      /* 왼쪽 벽 = 등받이 */
+.cd-seat.right{border-right-width:5px}    /* 오른쪽 벽 = 등받이 */
+.cd-seat.pri{border-color:var(--good);background:var(--good-weak)}
+.cd-seat.preg{border-color:#D1478C;background:#FBE8F1}
+.cd-seat.occ{border-color:var(--occ);background:var(--occ-bg);cursor:default}
+.cd-seat.picked{outline:3px solid var(--accent);outline-offset:1px;z-index:2}
+.cd-ic{font-size:10px;line-height:1;opacity:.85}
+.cd-badge{position:absolute;inset:0;display:grid;place-items:center;font-style:normal;
+  font-family:var(--mono);font-size:9px;font-weight:800;color:var(--good);
+  opacity:0;transition:.15s;pointer-events:none}
+.cd-car.revealed .cd-seat.occ .cd-badge{opacity:1}
+.cd-car.revealed .cd-seat.occ{border-color:var(--good);background:var(--good-weak)}
+
+/* 출입문: 좌석 블록 사이 */
+.cd-door{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0}
+.cd-door span{width:38px;height:2px;background:var(--line-2);border-radius:1px}
+.cd-door b{font-size:8px;font-weight:700;color:var(--faint);letter-spacing:.15em}
+
+.cd-aisle{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  align-self:stretch;font-size:9.5px;font-weight:700;color:var(--faint);letter-spacing:.1em}
+
+.cd-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 12px;margin-top:14px;font-size:10.5px;color:var(--muted);font-weight:600}
+.cd-legend span{display:inline-flex;align-items:center;gap:5px}
+.cd-lg{width:15px;height:10px;border-radius:3px;border:1.5px solid}
+.cd-lg.free{border-color:var(--accent);background:var(--accent-weak)}
+.cd-lg.occ{border-color:var(--occ);background:var(--occ-bg)}
+.cd-lg.pri{border-color:var(--good);background:var(--good-weak)}
+.cd-lg.preg{border-color:#D1478C;background:#FBE8F1}
+.cd-note{text-align:center;margin-top:9px;font-size:10.5px;color:var(--faint);font-weight:600;line-height:1.5}
+
+/* 점유석이어도 교통약자석·임산부배려석 테두리는 유지 (좌석 종류는 안 바뀌므로) */
+.cd-seat.pri.occ{border-color:var(--good)}
+.cd-seat.preg.occ{border-color:#D1478C}
+/* 하차정보를 공개하면 아이콘 자리에 남은 역 수를 보여줍니다 */
+.cd-car.revealed .cd-seat.occ .cd-ic{opacity:0}
