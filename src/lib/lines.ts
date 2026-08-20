@@ -62,3 +62,9 @@ export function stationNeighbors(name: string): Neighbors | null {
   }
   return null;
 }
+
+// 노선도에 있는 모든 노선 (탑승 노선 고르기용)
+export const ALL_LINES: { label: string; indicator: string }[] = LINES.map((l) => ({
+  label: l.label,
+  indicator: l.indicator,
+}));

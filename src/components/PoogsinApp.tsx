@@ -13,7 +13,7 @@ import {
   type SeatState,
 } from "@/lib/data";
 import { searchStations, STATION_COUNT } from "@/lib/stations";
-import { stationNeighbors, lineStations } from "@/lib/lines";
+import { stationNeighbors, lineStations, ALL_LINES } from "@/lib/lines";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
 import { carsForLeg } from "@/lib/car-counts";
 import { lineColor } from "@/lib/line-colors";
@@ -131,6 +131,10 @@ export default function PoogsinApp() {
 
   // 탑승 칸을 고르는 중인 구간 (환승이 있으면 노선마다 따로 고릅니다)
   const [carLeg, setCarLeg] = useState<RouteLeg | null>(null);
+  // "지금 열차 안이에요" 로 들어온 경우 (경로검색을 거치지 않은 진입)
+  const [rideMode, setRideMode] = useState(false);
+  const [rideOpen, setRideOpen] = useState(false); // 노선/방면 고르는 시트
+  const [rideLine, setRideLine] = useState<string | null>(null);
   const [pickedTrain, setPickedTrain] = useState<TrainPos | null>(null); // 내가 탄 열차
   const [pickedCar, setPickedCar] = useState(3); // 내가 탄 칸
 
@@ -196,6 +200,35 @@ export default function PoogsinApp() {
     setRouteOptions([]);
     setRouteErr(null);
     setRouteTab("time");
+  }
+
+  // "지금 열차 안이에요" — 경로검색 없이 바로 칸·좌석 화면으로 들어갑니다.
+  // 노선과 방면만 정하면 나머지(현재 위치)는 상단 열차 스트립에서 열차를 고를 때 채워집니다.
+  function startRide(line: string, towardLast: boolean) {
+    const all = lineStations(line);
+    if (!all.length) return;
+    const ordered = towardLast ? all : [...all].reverse(); // 진행 방향 순서
+    const terminus = ordered[ordered.length - 1];
+    setCarLeg({
+      type: "subway",
+      line,
+      color: lineColor(line),
+      start: ordered[0], // 임시값 — 열차를 고르면 그 열차 위치로 바뀝니다
+      end: terminus,
+      stations: ordered,
+      way: terminus,
+      door: "",
+      stationID: null,
+      wayCode: null,
+      stationCount: Math.max(1, ordered.length - 1),
+      min: 0,
+    });
+    setRideMode(true);
+    setRideOpen(false);
+    setRideLine(null);
+    setPickedTrain(null);
+    setPickedCar(3);
+    setView("car");
   }
 
   // 전체 시간표 화면 열기 (도착정보의 방면 칸을 누르면 그 방향으로 열립니다)
@@ -644,6 +677,7 @@ export default function PoogsinApp() {
               boardDest={picked?.dest ?? null}
               onBoard={(leg) => {
                 setCarLeg(leg);
+                setRideMode(false);
                 setPickedTrain(null); // 구간이 바뀌면 열차도 다시 고릅니다
                 setView("car");
               }}
@@ -653,12 +687,69 @@ export default function PoogsinApp() {
           {/* 지도 위 FAB (깨끗한 홈에서만) */}
           {stage === "map" && !dep && !arr && (
             <>
-              <button className="fab" style={{ left: 14, bottom: 78 }}>
-                <span className="locpin" /> 내 주변 역
+              <button className="fab ride" onClick={() => setRideOpen(true)}>
+                <span className="ride-ic" /> 지금 열차 안이에요
               </button>
               <button className="fab round" style={{ right: 14, bottom: 78 }}>
                 ◎
               </button>
+            </>
+          )}
+
+          {/* "지금 열차 안이에요" — 노선 → 방면 고르기 */}
+          {rideOpen && (
+            <>
+              <div className="overlay-scrim" onClick={() => { setRideOpen(false); setRideLine(null); }} />
+              <div className="sheet ride-sheet">
+                <div className="grab" />
+                {!rideLine ? (
+                  <>
+                    <h3 className="ride-h">어느 노선에 타고 계세요?</h3>
+                    <div className="ride-lines">
+                      {ALL_LINES.filter((l) => lineStations(l.label).length > 1).map((l) => (
+                        <button
+                          key={l.label}
+                          className="ride-line"
+                          style={{ borderColor: lineColor(l.label) }}
+                          onClick={() => setRideLine(l.label)}
+                        >
+                          <em style={{ background: lineColor(l.label) }}>{l.indicator}</em>
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <button className="ride-back" onClick={() => setRideLine(null)}>‹ 노선 다시 고르기</button>
+                    <h3 className="ride-h">
+                      <span className="vj-line" style={{ background: lineColor(rideLine) }}>{rideLine}</span>
+                      어느 방향으로 가고 있나요?
+                    </h3>
+                    <div className="ride-ways">
+                      {[true, false].map((towardLast) => {
+                        const all = lineStations(rideLine);
+                        const ordered = towardLast ? all : [...all].reverse();
+                        const terminus = ordered[ordered.length - 1];
+                        const from = ordered[0];
+                        return (
+                          <button
+                            key={String(towardLast)}
+                            className="ride-way"
+                            onClick={() => startRide(rideLine, towardLast)}
+                          >
+                            <b>{withYeok(terminus)} 방면</b>
+                            <small>{from} → {terminus}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="ride-hint">
+                      방면을 고르면 지금 달리는 열차 중에서 탄 열차를 고를 수 있어요
+                    </p>
+                  </>
+                )}
+              </div>
             </>
           )}
 
@@ -893,7 +984,13 @@ export default function PoogsinApp() {
                   picked ? `${hhmm(picked.min)} ${picked.dest ? `${picked.dest}행` : ""}`.trim() : null
                 }
                 selected={pickedTrain}
-                onSelect={setPickedTrain}
+                onSelect={(t) => {
+                  setPickedTrain(t);
+                  // 탑승 모드에서는 고른 열차의 현재 위치가 곧 내 위치입니다
+                  if (rideMode && t?.station) {
+                    setCarLeg((prev) => (prev && prev.start !== t.station ? { ...prev, start: t.station } : prev));
+                  }
+                }}
               />
             )}
 
@@ -1029,11 +1126,13 @@ export default function PoogsinApp() {
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="grab" />
                 <h3>
-                  {legEnd ? withYeok(legEnd) : "어느 역"}에서 {isTransfer ? "환승" : "하차"}하시나요?
+                  {rideMode
+                    ? "어디서 내리시나요?"
+                    : `${legEnd ? withYeok(legEnd) : "어느 역"}에서 ${isTransfer ? "환승" : "하차"}하시나요?`}
                 </h3>
                 <p className="sub">등록하면 +15P가 적립됩니다</p>
 
-                {legEnd && (
+                {!rideMode && legEnd && (
                   <button
                     className="btn alight-main"
                     onClick={() => registerAlight(legEnd, legStations.length)}
@@ -1043,7 +1142,7 @@ export default function PoogsinApp() {
                 )}
 
                 {/* 그 역에서 안 내리는 경우: 같은 호선의 다른 역을 직접 검색 */}
-                <div className="alight-other">
+                <div className={`alight-other${rideMode ? " bare" : ""}`}>
                   <div className={`alight-field${alightPicked ? " has-pick" : ""}`}>
                     {alightPicked ? (
                       <span className="alight-chip">

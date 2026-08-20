@@ -82,11 +82,21 @@ export default function TrainStrip({
   const boardIdx = stations.indexOf(boardStation);
 
   // 이 구간과 같은 방향으로 가는 열차만 (반대 방향을 고르면 엉뚱한 열차가 되므로 엄격히)
+  //
+  // 경로검색으로 들어온 경우엔 상·하행 코드(wayCode)가 있습니다.
+  // "지금 열차 안이에요"로 들어온 경우엔 코드가 없으므로, 열차의 종착역이
+  // 현재 위치보다 진행 방향 쪽에 있는지를 보고 같은 방향인지 판단합니다.
   const want = wayCode === 2 ? "down" : "up";
-  const trains = useMemo(
-    () => (res?.trains ?? []).filter((t) => t.updn === want),
-    [res, want]
-  );
+  const trains = useMemo(() => {
+    const all = res?.trains ?? [];
+    if (wayCode === 1 || wayCode === 2) return all.filter((t) => t.updn === want);
+    if (!stations.length) return all;
+    return all.filter((t) => {
+      const here = stations.indexOf(t.station);
+      const to = stations.indexOf(t.dest);
+      return here >= 0 && to >= 0 ? to > here : true;
+    });
+  }, [res, want, wayCode, stations]);
   const otherWayCount = (res?.trains ?? []).length - trains.length;
 
   // 보여줄 역 구간
