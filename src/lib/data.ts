@@ -9,7 +9,7 @@
 // 여기서는 비었는지 / 하차정보가 등록됐는지만 다룹니다.
 export type SeatState =
   | { kind: "free" }
-  | { kind: "occupied"; stopsLeft: number }; // stopsLeft: 하차까지 남은 역 수
+  | { kind: "occupied"; station: string; stopsLeft: number }; // station: 하차 예정역
 
 // 좌석 점유 목업.
 // 실제로는 사용자들이 등록한 하차정보(Supabase 예정)로 채워집니다.
@@ -22,11 +22,20 @@ function hash(str: string): number {
 }
 
 // seed에 칸 번호·노선을 넣어야 칸을 옮길 때 좌석 상황이 달라 보입니다.
-export function makeMockSeats(ids: string[], seed = ""): Record<string, SeatState> {
+// stations = 이 구간에서 앞으로 지나갈 역 목록 (승차역 다음부터 하차역까지)
+export function makeMockSeats(
+  ids: string[],
+  seed = "",
+  stations: string[] = []
+): Record<string, SeatState> {
   const out: Record<string, SeatState> = {};
+  if (!stations.length) return out;
   for (const id of ids) {
     const h = hash(seed + "|" + id);
-    if (h % 100 < 28) out[id] = { kind: "occupied", stopsLeft: (h % 6) + 1 };
+    if (h % 100 < 28) {
+      const i = h % stations.length;
+      out[id] = { kind: "occupied", station: stations[i], stopsLeft: i + 1 };
+    }
   }
   return out;
 }

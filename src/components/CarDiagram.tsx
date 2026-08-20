@@ -59,15 +59,17 @@ function Side({ blocks, seats, pickedSeat, onTap }: {
                   }
                 >
                   <SeatMark seat={s} />
-                  {st?.kind === "occupied" && <em className="cd-badge">{st.stopsLeft}역</em>}
+                  {st?.kind === "occupied" && <em className="cd-badge">{st.station}</em>}
                 </button>
               );
             })}
           </div>
           {bi < blocks.length - 1 && (
-            <div className="cd-door">
-              <span />
-              <span />
+            // 출입문: 위아래 문틀 사이에 양쪽으로 열린 문짝 두 짝
+            <div className="cd-door" aria-hidden="true">
+              <span className="cd-jamb" />
+              <span className="cd-leaf" />
+              <span className="cd-jamb" />
             </div>
           )}
         </div>

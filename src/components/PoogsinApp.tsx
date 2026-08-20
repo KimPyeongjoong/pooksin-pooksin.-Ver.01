@@ -138,6 +138,7 @@ export default function PoogsinApp() {
   const [revealed, setRevealed] = useState(false);
   const [pickedSeat, setPickedSeat] = useState<string | null>(null);
   const [alightFor, setAlightFor] = useState<string | null>(null); // 하차역을 입력할 좌석 id
+  const [alightQuery, setAlightQuery] = useState(""); // 하차역 직접 검색어
   const [seats, setSeats] = useState<Record<string, SeatState>>({});
   const [toast, setToast] = useState<string | null>(null);
 
@@ -350,10 +351,21 @@ export default function PoogsinApp() {
   // 이 칸의 실제 좌석 배치 (진행 방향 기준)
   const seatLayout = carLayout(carLeg?.line ?? "", carInfo.cars);
 
+  // 이 구간에서 승차역 다음부터 하차역까지 지나갈 역들
+  const legStations = (carLeg?.stations ?? []).filter((n) => n !== carLeg?.start);
+  // 이 구간의 하차역 (환승이면 갈아타는 역, 마지막 구간이면 최종 도착역)
+  const legEnd = carLeg?.end ?? null;
+  // 최종 목적지가 아니면 환승역입니다
+  const isTransfer = !!legEnd && !!arr && legEnd !== arr;
+
   // 칸이 바뀌면 그 칸의 좌석을 새로 채웁니다 (지금은 목업, 나중에 서버 데이터로 교체)
   useEffect(() => {
     setSeats(
-      makeMockSeats(allSeats(seatLayout).map((x) => x.id), `${carLeg?.line ?? ""}-${pickedCar}`)
+      makeMockSeats(
+        allSeats(seatLayout).map((x) => x.id),
+        `${carLeg?.line ?? ""}-${pickedCar}`,
+        legStations
+      )
     );
     setPickedSeat(null);
     setAlightFor(null);
@@ -403,12 +415,13 @@ export default function PoogsinApp() {
     if (seats[seat.id]?.kind === "occupied") return;
     setPickedSeat(seat.id);
     setAlightFor(seat.id);
+    setAlightQuery("");
   }
 
   // 하차역 선택 → 등록(공급) → 포인트 적립
   function registerAlight(stationName: string, stopsLeft: number) {
     if (!alightFor) return;
-    setSeats((prev) => ({ ...prev, [alightFor]: { kind: "occupied", stopsLeft } }));
+    setSeats((prev) => ({ ...prev, [alightFor]: { kind: "occupied", station: stationName, stopsLeft } }));
     setPoints((p) => p + 15);
     setAlightFor(null);
     setPickedSeat(null);
@@ -998,15 +1011,49 @@ export default function PoogsinApp() {
             <div className="modal-scrim" onClick={() => { setAlightFor(null); setPickedSeat(null); }}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="grab" />
-                <h3>하차역을 알려주세요</h3>
-                <p className="sub">간단히 등록하면 +15P가 적립됩니다 (공급)</p>
-                <div className="stn-list">
-                  {REMAINING_STATIONS.map((st, idx) => (
-                    <button className="stn-item" key={st.name} onClick={() => registerAlight(st.name, idx + 1)}>
-                      <span>{st.name}</span>
-                      <small>{st.line}</small>
-                    </button>
-                  ))}
+                <h3>
+                  {legEnd ? withYeok(legEnd) : "어느 역"}에서 {isTransfer ? "환승" : "하차"}하시나요?
+                </h3>
+                <p className="sub">등록하면 +15P가 적립됩니다</p>
+
+                {legEnd && (
+                  <button
+                    className="btn alight-main"
+                    onClick={() => registerAlight(legEnd, legStations.length)}
+                  >
+                    {withYeok(legEnd)} 하차 등록
+                  </button>
+                )}
+
+                {/* 그 역에서 안 내리는 경우: 이 구간의 다른 역을 고를 수 있게 */}
+                <div className="alight-other">
+                  <input
+                    className="alight-input"
+                    placeholder="하차역 입력하기"
+                    value={alightQuery}
+                    onChange={(e) => setAlightQuery(e.target.value)}
+                  />
+                  {alightQuery.trim() && (
+                    <div className="stn-list" style={{ marginTop: 8, maxHeight: 200, overflowY: "auto" }}>
+                      {legStations
+                        .filter((n) => n.includes(alightQuery.trim()))
+                        .map((n, i) => (
+                          <button
+                            className="stn-item"
+                            key={n}
+                            onClick={() => registerAlight(n, legStations.indexOf(n) + 1)}
+                          >
+                            <span>{withYeok(n)}</span>
+                            <small>{i === 0 ? "" : ""}</small>
+                          </button>
+                        ))}
+                      {legStations.filter((n) => n.includes(alightQuery.trim())).length === 0 && (
+                        <div className="search-hint" style={{ padding: 14 }}>
+                          이 구간에 없는 역이에요
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

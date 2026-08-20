@@ -493,15 +493,21 @@ button{font-family:inherit}
 .cd-seat.picked{outline:3px solid var(--accent);outline-offset:2px;z-index:2}
 .cd-ic{font-size:14px;line-height:1;opacity:.9}
 .cd-badge{position:absolute;inset:0;display:grid;place-items:center;font-style:normal;
-  font-family:var(--mono);font-size:12px;font-weight:800;color:var(--good);
+  font-size:10px;font-weight:800;color:var(--good);letter-spacing:-.03em;
+  padding:0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   opacity:0;transition:.15s;pointer-events:none}
 .cd-car.revealed .cd-seat.occ .cd-badge{opacity:1}
 .cd-car.revealed .cd-seat.occ{border-color:var(--good);background:var(--good-weak)}
 .cd-car.revealed .cd-seat.occ .cd-ic{opacity:0}
 
-/* 출입문: 좌석 블록 사이의 빈 자리 */
-.cd-door{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 0}
-.cd-door span{width:52px;height:3px;background:var(--line-2);border-radius:2px}
+/* 출입문: 위아래 문틀 사이에 양쪽으로 열린 문짝 두 짝 */
+.cd-door{display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 0;width:52px}
+.cd-jamb{width:52px;height:4px;background:var(--line-2);border-radius:2px}
+.cd-leaf{position:relative;width:52px;height:16px}
+.cd-leaf::before,.cd-leaf::after{content:"";position:absolute;top:0;width:15px;height:16px;
+  border:2px solid var(--line-2);background:var(--surface);border-radius:3px}
+.cd-leaf::before{left:0}
+.cd-leaf::after{right:0}
 
 /* 통로: 위쪽 화살표를 줄지어 진행 방향 표시 (좌석보다 흐리게) */
 .cd-aisle{align-self:stretch;display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;padding:6px 0}
@@ -509,3 +515,12 @@ button{font-family:inherit}
   border-bottom:9px solid var(--line-2);opacity:.55}
 
 .cd-note{text-align:center;margin-top:12px;font-size:11px;color:var(--faint);font-weight:600;line-height:1.5}
+
+
+/* ---- 하차역 등록 팝오버 ---- */
+.alight-main{width:100%;margin:4px 0 14px}
+.alight-other{border-top:1px solid var(--line);padding-top:14px}
+.alight-input{width:100%;border:1px solid var(--line-2);border-radius:11px;padding:12px 14px;
+  font-family:inherit;font-size:14px;color:var(--ink);background:var(--surface-2);outline:none}
+.alight-input::placeholder{color:var(--faint);font-weight:500}
+.alight-input:focus{border-color:var(--accent);background:var(--surface)}
