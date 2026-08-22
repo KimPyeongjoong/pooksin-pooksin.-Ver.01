@@ -202,6 +202,18 @@ export default function PoogsinApp() {
     setRouteTab("time");
   }
 
+  // 칸·좌석 화면에서 한 번에 첫 화면으로 나가기 (상단 오른쪽 ✕)
+  //
+  // ‹ 는 한 단계만 뒤로 가지만, ✕ 는 하던 것을 접고 노선도로 돌아갑니다.
+  // 그래서 고르던 열차·칸과 경로검색 결과까지 함께 비웁니다.
+  function exitToHome() {
+    setView("home");
+    setRideMode(false);
+    setCarLeg(null);
+    setPickedTrain(null);
+    resetHome();
+  }
+
   // "지금 열차 안이에요" — 경로검색 없이 바로 칸·좌석 화면으로 들어갑니다.
   // 노선과 방면만 정하면 나머지(현재 위치)는 상단 열차 스트립에서 열차를 고를 때 채워집니다.
   function startRide(line: string, towardLast: boolean) {
@@ -965,6 +977,9 @@ export default function PoogsinApp() {
               ‹
             </button>
             {carLeg?.line ? `${carLeg.line} 탑승 칸 선택` : "탑승한 칸 선택"}
+            <button className="appbar-x" onClick={exitToHome} aria-label="홈으로">
+              ✕
+            </button>
           </div>
           <div className="scroll pad">
             {carLeg && (
@@ -1047,6 +1062,9 @@ export default function PoogsinApp() {
               ‹
             </button>
             {pickedCar}번 칸 좌석
+            <button className="appbar-x" onClick={exitToHome} aria-label="홈으로">
+              ✕
+            </button>
           </div>
           {/* 칸 이동: ‹ 이전 칸 · [n번 칸 ▾] · 다음 칸 › */}
           <div className="carnav">
