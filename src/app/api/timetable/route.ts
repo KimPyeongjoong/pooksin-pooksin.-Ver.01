@@ -1,8 +1,17 @@
-// 지하철역 "실제 시간표" 서버 경로 (ODsay subwayTimeTable)
+// 지하철역 "실제 시간표" 서버 경로
 //
-// 호출 방법 두 가지:
-//   /api/timetable?stationID=222            ← 경로검색이 준 역 ID를 그대로
-//   /api/timetable?station=응봉&line=경의중앙선  ← 역 이름으로
+// 호출 방법:
+//   /api/timetable?station=종로3가&line=5호선   ← 이렇게 부르는 것을 권장합니다
+//   /api/timetable?stationID=222              ← 예전 방식(ODsay 역 ID)
+//
+// 어디서 오는가 — 두 갈래입니다.
+//   ① 앱에 내장된 시간표 (대부분)  … 외부 호출 0건
+//      공공데이터포털 "서울교통공사_열차시간표"를 scripts/build-timetable.mjs 로 미리 받아둔 것.
+//      1~9호선 · 수인분당 · 신분당 · 공항철도 · 신림선.
+//   ② ODsay (나머지)             … 경의중앙 · 인천1 · 우이신설. 이 노선만 남았습니다.
+//
+// 왜 이렇게 바꿨나: 시간표는 1년에 두어 번 바뀌는 고정 데이터인데 화면을 열 때마다
+// ODsay에 물어보고 있었습니다. ODsay는 하루 호출 한도(무료 1,000건)가 있어 금방 바닥납니다.
 //
 // 돌려주는 것:
 //   평일 / 토요일 / 휴일 × 상행·하행 시간표 전부 + 오늘이 어느 쪽인지.
@@ -13,6 +22,8 @@
 
 import { dayTypeOf, holidayDataCovers, isHoliday, kstDateKey, type DayType } from "@/lib/holidays";
 import { lineColor, shortLine } from "@/lib/line-colors";
+import { linesAtStation } from "@/lib/lines";
+import { isCovered, stationTimetable } from "@/lib/timetable";
 
 const ODSAY = "https://api.odsay.com/v1/api";
 
@@ -92,6 +103,41 @@ export async function GET(request: Request) {
   const stationName = searchParams.get("station");
   const lineParam = searchParams.get("line");
 
+  const today: DayType = dayTypeOf();
+
+  // ── ① 앱에 내장된 시간표 ─────────────────────────────────
+  // 역 이름을 알면 외부 호출 없이 바로 답할 수 있습니다.
+  if (stationName) {
+    // 이 역에 어떤 노선이 지나는지도 내장 노선도로 만듭니다 (예전엔 ODsay에 물어봤습니다).
+    const here = linesAtStation(stationName).map((l) => shortLine(l.label));
+    const siblings = here.map((line, i) => ({ stationID: i, line }));
+    // 요청한 노선이 없으면, 그 역에서 내장 시간표가 있는 첫 노선을 씁니다.
+    const want = lineParam ? shortLine(lineParam) : here.find((l) => isCovered(l)) ?? here[0];
+
+    if (want && isCovered(want)) {
+      const t = await stationTimetable(stationName, want);
+      if (t) {
+        return Response.json({
+          stationName,
+          line: t.line,
+          color: lineColor(t.line),
+          upWay: t.upWay,
+          downWay: t.downWay,
+          today,
+          isHoliday: isHoliday(),
+          dateKey: kstDateKey(),
+          holidayDataStale: !holidayDataCovers(),
+          source: "builtin", // 내장 데이터로 답했음 (외부 호출 0건)
+          built: t.built, // 시간표를 받아둔 날짜
+          lists: t.lists,
+          siblings,
+        });
+      }
+    }
+  }
+
+  // ── ② 내장 시간표가 없는 노선만 ODsay ─────────────────────
+  // 경의중앙 · 인천1 · 우이신설 (공공 시간표에 아예 없는 노선)
   const key = process.env.ODSAY_API_KEY || "";
   if (!key) return Response.json({ error: "ODSAY_API_KEY 없음" }, { status: 500 });
 
@@ -117,7 +163,6 @@ export async function GET(request: Request) {
       return Response.json({ error: "stationID 또는 station 필요" }, { status: 400 });
     }
 
-    const today: DayType = dayTypeOf();
     const cacheKey = `${stationID}|${kstDateKey()}`;
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.at < CACHE_MS) {

@@ -149,7 +149,7 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
         <div className="tt-lines">
           {lines.map((s) => (
             <button
-              key={s.stationID}
+              key={s.line}
               className={`lchip${s.line === (data?.line ?? curLine) ? " on" : ""}`}
               onClick={() => {
                 setHour(null);

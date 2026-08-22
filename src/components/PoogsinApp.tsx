@@ -333,9 +333,12 @@ export default function PoogsinApp() {
     setTimetable(null);
     setDepIdx(null);
     setPickedByUser(false);
-    const q = boardStationID
-      ? `stationID=${boardStationID}`
-      : `station=${encodeURIComponent(boardLeg!.start!)}&line=${encodeURIComponent(boardLeg!.line!)}`;
+    // 역 이름 + 노선을 보냅니다. 내장 시간표는 역 이름으로 찾기 때문입니다.
+    // (stationID는 내장 시간표가 없는 노선에서 ODsay로 넘어갈 때만 쓰입니다)
+    const q = new URLSearchParams();
+    if (boardLeg?.start) q.set("station", boardLeg.start);
+    if (boardLeg?.line) q.set("line", boardLeg.line);
+    if (boardStationID) q.set("stationID", String(boardStationID));
     fetch(`/api/timetable?${q}`)
       .then((r) => r.json())
       .then((d: TimetableRes) => {
@@ -1473,9 +1476,10 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
   useEffect(() => {
     if (!stationID && !(start && line)) return;
     setTtLoading(true);
-    const q = stationID
-      ? `stationID=${stationID}`
-      : `station=${encodeURIComponent(start)}&line=${encodeURIComponent(line)}`;
+    const q = new URLSearchParams();
+    if (start) q.set("station", start);
+    if (line) q.set("line", line);
+    if (stationID) q.set("stationID", String(stationID));
     let alive = true;
     fetch(`/api/timetable?${q}`)
       .then((r) => r.json())

@@ -1,0 +1,70 @@
+{
+  "built": "2026-08-22",
+  "lines": [
+    {
+      "line": "1호선",
+      "stations": 102,
+      "kb": 670
+    },
+    {
+      "line": "2호선",
+      "stations": 78,
+      "kb": 527
+    },
+    {
+      "line": "3호선",
+      "stations": 44,
+      "kb": 235
+    },
+    {
+      "line": "4호선",
+      "stations": 51,
+      "kb": 360
+    },
+    {
+      "line": "5호선",
+      "stations": 56,
+      "kb": 279
+    },
+    {
+      "line": "6호선",
+      "stations": 39,
+      "kb": 168
+    },
+    {
+      "line": "7호선",
+      "stations": 53,
+      "kb": 280
+    },
+    {
+      "line": "8호선",
+      "stations": 24,
+      "kb": 106
+    },
+    {
+      "line": "9호선",
+      "stations": 38,
+      "kb": 188
+    },
+    {
+      "line": "수인분당선",
+      "stations": 63,
+      "kb": 208
+    },
+    {
+      "line": "신분당선",
+      "stations": 16,
+      "kb": 74
+    },
+    {
+      "line": "공항철도",
+      "stations": 14,
+      "kb": 55
+    },
+    {
+      "line": "신림선",
+      "stations": 11,
+      "kb": 57
+    }
+  ]
+}
