@@ -28,6 +28,7 @@ type LineTable = {
 // 반환형을 unknown으로 둔 이유: JSON을 읽으면 TypeScript가 `[분, 행선지번호]` 쌍을
 // 튜플이 아니라 그냥 숫자 배열로 봅니다. 아래 table()에서 한 번만 변환합니다.
 const LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
+  "GTX-A": () => import("./timetable/GTX-A.json"),
   "1호선": () => import("./timetable/1호선.json"),
   "2호선": () => import("./timetable/2호선.json"),
   "3호선": () => import("./timetable/3호선.json"),
@@ -41,6 +42,16 @@ const LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
   "신분당선": () => import("./timetable/신분당선.json"),
   "공항철도": () => import("./timetable/공항철도.json"),
   "신림선": () => import("./timetable/신림선.json"),
+  "서해선": () => import("./timetable/서해선.json"),
+  "경춘선": () => import("./timetable/경춘선.json"),
+  "경강선": () => import("./timetable/경강선.json"),
+  "경의중앙선": () => import("./timetable/경의중앙선.json"),
+  "인천1호선": () => import("./timetable/인천1호선.json"),
+  "인천2호선": () => import("./timetable/인천2호선.json"),
+  "김포골드라인": () => import("./timetable/김포골드라인.json"),
+  "용인경전철": () => import("./timetable/용인경전철.json"),
+  "의정부경전철": () => import("./timetable/의정부경전철.json"),
+  "우이신설선": () => import("./timetable/우이신설선.json"),
 };
 
 export const COVERED_LINES = Object.keys(LOADERS);
@@ -71,12 +82,17 @@ async function table(line: string): Promise<LineTable | null> {
 //   노선도: "총신대입구(이수)"
 // 그래서 공백·괄호·끝의 "역"을 떼고 비교합니다.
 // (13개 노선 496개 역에 대해 이 규칙으로 이름이 겹치는 경우가 없음을 확인했습니다.)
-const norm = (s: string) =>
+// 그래도 안 맞는 두 곳은 따로 적어둡니다.
+//   이수(7호선 시간표) = 총신대입구(4호선·노선도)  — 한 역을 노선마다 다르게 부릅니다
+//   서해구청(노선도)   = 서구청(공식·시간표)        — 노선도 표기가 다릅니다
+const NAME_ALIAS: Record<string, string> = { 이수: "총신대입구", 서해구청: "서구청" };
+const bare = (s: string) =>
   (s || "")
     .replace(/\s/g, "")
     .replace(/\([^)]*\)/g, "")
     .replace(/역$/, "")
     .trim();
+const norm = (s: string) => NAME_ALIAS[bare(s)] ?? bare(s);
 
 // 앱은 평일 / 토요일 / 휴일 세 가지로 나누지만,
 // 공공 시간표는 평일 / 주말 두 가지뿐입니다. 토요일·휴일은 같은 주말 시간표를 씁니다.
@@ -126,11 +142,15 @@ export async function stationTimetable(
     return best;
   };
 
-  return {
-    line: t.line,
-    built: t.built,
-    upWay: common(lists.weekday.up),
-    downWay: common(lists.weekday.down),
-    lists,
-  };
+  let upWay = common(lists.weekday.up);
+  let downWay = common(lists.weekday.down);
+  // 순환선(2호선)은 양방향 열차가 모두 성수에서 끝나서 방면 이름이 똑같아집니다.
+  // 그대로 두면 화면에 "성수 방면"이 두 개 나와 어느 쪽인지 알 수 없습니다.
+  if (upWay && upWay === downWay) {
+    const circular = /2호선/.test(t.line);
+    upWay = `${upWay}(${circular ? "외선" : "상행"})`;
+    downWay = `${downWay}(${circular ? "내선" : "하행"})`;
+  }
+
+  return { line: t.line, built: t.built, upWay, downWay, lists };
 }

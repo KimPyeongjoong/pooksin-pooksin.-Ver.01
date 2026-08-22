@@ -205,8 +205,9 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
                   [dirs.up, data?.upWay ?? "상행"],
                   [dirs.down, data?.downWay ?? "하행"],
                 ] as const)
-            ).map(([list, label]) => (
-              <div key={label}>{column(list, label)}</div>
+            ).map(([list, label], i) => (
+              // 2호선처럼 양방향 방면 이름이 같을 수 있어(둘 다 "성수 방면") 순서를 키에 넣습니다.
+              <div key={i}>{column(list, label)}</div>
             ))}
           </div>
 

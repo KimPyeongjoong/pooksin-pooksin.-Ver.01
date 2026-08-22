@@ -9,8 +9,12 @@
 //   https://apis.data.go.kr/B553766/schedule/getTrainSch
 //   키: .env.local 의 SEOUL_METRO_API_KEY (URL 인코딩된 형태 그대로 사용)
 //
-// 커버 못 하는 노선: 경의중앙 · 인천1 · 우이신설 (이 API에 아예 없음)
-//   → 그 세 노선만 기존대로 ODsay로 조회합니다.
+// 커버: 수도권 24개 노선 **전부**.
+//   처음엔 "경의중앙·인천1·우이신설은 없다"고 판단했는데, **이름을 잘못 물어본 것**이었습니다.
+//   이 API는 앱과 다른 이름을 씁니다(아래 TARGETS 참조). 없다고 결론내기 전에 이름을 의심하세요.
+//
+// 같이 만드는 것: src/lib/section-times.json (역과 역 사이 소요시간, 초 단위)
+//   경로검색을 직접 만들 때 쓰고, short-route.ts의 실행 중 API 호출도 없애 줍니다.
 //
 // 실행: (poogsin 폴더에서)
 //   node scripts/build-timetable.mjs           전체
@@ -18,6 +22,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import linemap from "../src/lib/linemap.json" with { type: "json" };
 
 const API = "https://apis.data.go.kr/B553766/schedule/getTrainSch";
 const OUT_DIR = path.join(process.cwd(), "src", "lib", "timetable");
@@ -29,20 +34,40 @@ const PAGE = 5000; // 이 API가 한 번에 주는 최대치 (10000을 넣으면
 // 2호선만 방향이 네 가지입니다.
 //   본선은 순환선이라 내선/외선, 지선(성수지선·신정지선)은 상행/하행으로 들어 있습니다.
 //   지선 역(용답·신답·용두·신설동 / 도림천·양천구청·신정네거리·까치산)은 상·하행 쪽에만 있습니다.
+// ⚠️ `lineNm`은 **부분일치**입니다. "2호선"으로 요청하면 **인천2호선이 먼저** 옵니다.
+//    (2호선 상행 6,144행이 전부 인천2호선이었습니다.) 그래서 받은 뒤 lineNm이
+//    정확히 일치하는 행만 남깁니다. `api`가 요청할 이름, `line`이 앱에서 쓰는 이름입니다.
+//
+// ⚠️ 이름이 앱과 다른 노선이 많습니다. 이름을 잘못 물어보면 "이 노선은 데이터가 없다"고
+//    착각하게 됩니다. 실제로 처음엔 우이신설·경의중앙·인천1·김포를 그렇게 놓쳤습니다.
+//      경의·중앙선 → "경의선"        인천1호선 → "인천선"
+//      김포골드라인 → "김포도시철도"   우이신설선 → "우이신설경전철"
 const TARGETS = [
-  { line: "1호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "2호선", dirs: { 외선: "up", 내선: "down", 상행: "up", 하행: "down" } },
-  { line: "3호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "4호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "5호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "6호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "7호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "8호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "9호선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "수인분당선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "신분당선", dirs: { 상행: "up", 하행: "down" } },
-  { line: "공항철도", dirs: { 상행: "up", 하행: "down" } },
-  { line: "신림선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "GTX-A", line: "GTX-A", dirs: { 상행: "up", 하행: "down" } },
+  { api: "1호선", line: "1호선", dirs: { 상행: "up", 하행: "down" } },
+  // 서울 2호선은 상행/하행 자료가 아예 없습니다. 본선·지선 모두 내선/외선에 들어 있습니다.
+  { api: "2호선", line: "2호선", dirs: { 외선: "up", 내선: "down" } },
+  { api: "3호선", line: "3호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "4호선", line: "4호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "5호선", line: "5호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "6호선", line: "6호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "7호선", line: "7호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "8호선", line: "8호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "9호선", line: "9호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "수인분당선", line: "수인분당선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "신분당선", line: "신분당선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "공항철도", line: "공항철도", dirs: { 상행: "up", 하행: "down" } },
+  { api: "신림선", line: "신림선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "서해선", line: "서해선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "경춘선", line: "경춘선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "경강선", line: "경강선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "경의선", line: "경의중앙선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "인천선", line: "인천1호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "인천2호선", line: "인천2호선", dirs: { 상행: "up", 하행: "down" } },
+  { api: "김포도시철도", line: "김포골드라인", dirs: { 상행: "up", 하행: "down" } },
+  { api: "용인경전철", line: "용인경전철", dirs: { 상행: "up", 하행: "down" } },
+  { api: "의정부경전철", line: "의정부경전철", dirs: { 상행: "up", 하행: "down" } },
+  { api: "우이신설경전철", line: "우이신설선", dirs: { 상행: "up", 하행: "down" } },
 ];
 
 // 2호선 본선 우선 처리를 위해, 본선 방향 이름을 따로 알아둡니다.
@@ -73,14 +98,14 @@ function toMin(hhmmss) {
   return min < 4 * 60 ? min + 24 * 60 : min;
 }
 
-async function fetchPage(key, line, dir, wknd, pageNo) {
+async function fetchPage(key, api, dir, wknd, pageNo) {
   const qs = new URLSearchParams({
     numOfRows: String(PAGE),
     pageNo: String(pageNo),
     tmprTmtblYn: "N", // 임시 시간표 제외
     upbdnbSe: dir,
     wkndSe: wknd,
-    lineNm: line,
+    lineNm: api,
   });
   const res = await fetch(`${API}?serviceKey=${key}&${qs}`);
   const text = await res.text();
@@ -90,22 +115,27 @@ async function fetchPage(key, line, dir, wknd, pageNo) {
   const rows = [];
   for (const m of text.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
     const blk = m[1];
+    // ⚠️ lineNm 부분일치 때문에 다른 노선이 섞여 옵니다. 정확히 일치하는 행만 씁니다.
+    if (tag(blk, "lineNm") !== api) continue;
     const tm = tag(blk, "trainDptreTm");
     // ⚠️ 출발시각이 빈 행이 많습니다 — 그 역이 종착인 열차라 출발이 없습니다. 버립니다.
     if (!tm) continue;
     const min = toMin(tm);
     if (!Number.isFinite(min)) continue;
-    rows.push({ stn: tag(blk, "stnNm"), min, dest: tag(blk, "arvlStnNm") });
+    // trainno는 "같은 열차가 이웃 역을 언제 출발하는지" 비교해 구간 소요시간을 뽑는 데 씁니다.
+    const [hh, mm, ss] = String(tm).split(":").map(Number);
+    const sec = (Number.isFinite(hh) ? hh : 0) * 3600 + (mm || 0) * 60 + (ss || 0);
+    rows.push({ stn: tag(blk, "stnNm"), min, sec, dest: tag(blk, "arvlStnNm"), no: tag(blk, "trainno") });
   }
   return { rows, total };
 }
 
-async function collect(key, line, dir, wknd, log) {
+async function collect(key, api, line, dir, wknd, log) {
   const out = [];
   let page = 1;
   let total = Infinity;
   while ((page - 1) * PAGE < total) {
-    const { rows, total: t } = await fetchPage(key, line, dir, wknd, page);
+    const { rows, total: t } = await fetchPage(key, api, dir, wknd, page);
     total = t;
     out.push(...rows);
     if (rows.length === 0 && page > 1) break; // 방어
@@ -116,27 +146,126 @@ async function collect(key, line, dir, wknd, log) {
   return out;
 }
 
+// ── 구간 소요시간 뽑기 ───────────────────────────────────────
+//
+// 경로검색을 직접 만들려면 "이 역에서 다음 역까지 몇 분"이 필요합니다.
+// 시간표에는 그 값이 없지만, **같은 열차번호**가 이웃한 두 역을 출발한 시각을 빼면 구할 수 있습니다.
+//   예) 열차 5031이 종로3가 08:00, 을지로4가 08:02 출발 → 2분
+// 열차마다 조금씩 다르므로 가장 많이 나온 값(최빈값)을 씁니다.
+//
+// 이 값이 있으면 (1) 경로검색을 직접 만들 수 있고
+//               (2) short-route.ts가 실행 중에 API를 부르지 않아도 됩니다.
+// 노선도에서 "실제로 이웃한 역" 쌍을 만들어 둡니다.
+//
+// ⚠️ 이게 없으면 급행 열차 때문에 엉뚱한 구간이 만들어집니다.
+//    급행은 역을 건너뛰므로 정차역만 이어보면 "서울역 → 구로"처럼 이웃이 아닌 쌍이 생기고,
+//    그 시간이 인접 구간 시간으로 둔갑합니다. (1호선에서 구간이 1148개나 나왔던 원인)
+const LINEMAP_NAME = {
+  신림선: "신림",
+  서해선: "서해",
+  우이신설선: "우이신설경전철",
+  경의중앙선: "경의·중앙선",
+};
+// 역 이름 정규화 — 자료마다 표기가 다릅니다.
+//   노선도 "관악산(서울대)"  ↔  시간표 "관악산"
+//   노선도 "사우 (김포시청)" ↔  검색목록 "사우"
+//   검색목록 "서울"          ↔  시간표 "서울역"
+// 공백·괄호·끝의 "역"을 떼고 비교합니다. (src/lib/timetable.ts 와 같은 규칙)
+const NAME_ALIAS = { 이수: "총신대입구" }; // 4호선은 총신대입구, 7호선 시간표는 이수로 부릅니다
+const nn = (s) =>
+  NAME_ALIAS[rawNn(s)] ?? rawNn(s);
+const rawNn = (s) =>
+  (s || "")
+    .replace(/\s/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/역$/, "")
+    .trim();
+function adjacentPairs(line) {
+  const label = LINEMAP_NAME[line] ?? line;
+  const l = linemap.find((x) => nn(x.label) === nn(label));
+  const set = new Set();
+  if (!l) return set;
+  let prev = null;
+  for (const n of l.nodes) {
+    if (n.m) prev = null; // 선이 끊기는 지점에서는 이어지지 않습니다
+    if (!n.name) continue;
+    if (prev) {
+      set.add(`${nn(prev)}|${nn(n.name)}`);
+      set.add(`${nn(n.name)}|${nn(prev)}`);
+    }
+    prev = n.name;
+  }
+  return set;
+}
+
+function addSectionTimes(rows, acc, adj) {
+  // 열차번호별로 "출발시각 순서"대로 늘어놓습니다.
+  const byTrain = new Map();
+  for (const r of rows) {
+    if (!r.no || !r.stn) continue;
+    if (!byTrain.has(r.no)) byTrain.set(r.no, []);
+    byTrain.get(r.no).push(r);
+  }
+  for (const stops of byTrain.values()) {
+    stops.sort((a, b) => a.sec - b.sec);
+    for (let i = 0; i + 1 < stops.length; i++) {
+      const a = stops[i];
+      const b = stops[i + 1];
+      const k = `${nn(a.stn)}|${nn(b.stn)}`;
+      // 노선도상 실제 이웃이 아니면 버립니다 (급행이 건너뛴 구간 등)
+      if (!adj.has(k)) continue;
+      // 초 단위로 계산합니다. 분으로 잘라 쓰면 08:00:50 → 08:01:40 이 "1분"이 되어
+      // 실제 2분 구간이 1분으로 나옵니다 (강남→역삼에서 실제로 그랬습니다).
+      const d = b.sec - a.sec;
+      if (d <= 0 || d > 15 * 60) continue; // 0이나 비정상으로 긴 값은 자료 오류
+      if (!acc.has(k)) acc.set(k, new Map());
+      const tally = acc.get(k);
+      tally.set(d, (tally.get(d) ?? 0) + 1);
+    }
+  }
+}
+
+// 최빈값만 남겨 { "종로3가|을지로4가": 128 } 형태로 (단위: 초)
+// 초로 저장해야 여러 구간을 더할 때 오차가 쌓이지 않습니다.
+function pickModes(acc) {
+  const out = {};
+  for (const [k, tally] of acc) {
+    let best = 0;
+    let max = 0;
+    for (const [d, n] of tally)
+      if (n > max) {
+        max = n;
+        best = d;
+      }
+    if (best) out[k] = best;
+  }
+  return out;
+}
+
 // ── 본체 ────────────────────────────────────────────────────
 async function main() {
   const only = process.argv[2] || null;
   const key = apiKey();
-  const targets = only ? TARGETS.filter((t) => t.line === only) : TARGETS;
+  const targets = only ? TARGETS.filter((t) => t.line === only || t.api === only) : TARGETS;
   if (!targets.length) throw new Error(`'${only}' 는 이 API가 제공하지 않는 노선입니다`);
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const built = new Date().toISOString().slice(0, 10);
   const index = [];
 
-  for (const { line, dirs } of targets) {
+  for (const { api, line, dirs } of targets) {
     console.log(`■ ${line}`);
     // stations[역명][up|down][wd|we] = Set("min|dest")
     const stations = new Map();
+    const sectionAcc = new Map(); // "A|B" → Map(소요초 → 몇 번 나왔나)
+    const adj = adjacentPairs(line); // 노선도상 실제 이웃 쌍
     // 2호선에서 본선 데이터가 이미 담긴 역 (지선이 덮어쓰지 않게)
     const fromMain = new Set();
 
     for (const [dir, way] of Object.entries(dirs)) {
       for (const [wknd, dayKey] of Object.entries(DAYS)) {
-        const rows = await collect(key, line, dir, wknd, console.log);
+        const rows = await collect(key, api, line, dir, wknd, console.log);
+        addSectionTimes(rows, sectionAcc, adj);
         for (const r of rows) {
           if (!r.stn) continue;
           // 2호선: 본선(내선·외선)에 있는 역은 지선(상·하행)으로 덮어쓰지 않습니다.
@@ -190,6 +319,14 @@ async function main() {
     const kb = Math.round(fs.statSync(file).size / 1024);
     console.log(`  → ${line}.json  역 ${Object.keys(outStations).length}개 · ${kb}KB\n`);
     index.push({ line, stations: Object.keys(outStations).length, kb });
+
+    // 구간 소요시간은 한 파일에 모읍니다 (노선 하나만 다시 받아도 나머지는 남기려고 병합)
+    const secFile = path.join(path.dirname(OUT_DIR), "section-times.json");
+    const prev = fs.existsSync(secFile) ? JSON.parse(fs.readFileSync(secFile, "utf8")) : { built, lines: {} };
+    prev.built = built;
+    prev.lines[line] = pickModes(sectionAcc);
+    fs.writeFileSync(secFile, JSON.stringify(prev));
+    console.log(`  → section-times.json  ${line} 구간 ${Object.keys(prev.lines[line]).length}개`);
   }
 
   if (!only) {
