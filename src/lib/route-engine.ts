@@ -19,6 +19,7 @@ import linemap from "./linemap.json";
 import coordsJson from "./station-coords.json";
 import sectionJson from "./section-times.json";
 import transferJson from "./transfers.json";
+import extraJson from "./transfers-extra.json";
 import { lineColor, shortLine } from "./line-colors";
 
 type Node = { x: number; y: number; m?: boolean; name?: string };
@@ -39,12 +40,21 @@ export function transferCases(station: string, from: string, to: string): Transf
   return TRANSFERS[norm(station)]?.[shortLine(from)]?.[shortLine(to)] ?? [];
 }
 
-// 그 역에서 A노선 → B노선 환승에 걸리는 시간(초). 자료에 없으면 상수를 씁니다.
+// 서울교통공사 자료가 없는 환승(코레일·GTX·민자 노선)을 ODsay로 재서 채워둔 것.
+// scripts/build-transfers-odsay.mjs 참고. 값은 초.
+const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<string, number>>> })
+  .stations;
+
+// 그 역에서 A노선 → B노선 환승에 걸리는 시간(초).
+// ① 서울교통공사 공식 자료 → ② ODsay로 보충한 값 → ③ 그래도 없으면 상수
 function transferSecOf(station: string, from: string, to: string): number {
   const cases = transferCases(station, from, to);
-  if (!cases.length) return TRANSFER_SEC;
-  const v = cases.map((c) => c.sec).sort((a, b) => a - b);
-  return v[Math.floor(v.length / 2)]; // 방향마다 조금씩 달라 중앙값
+  if (cases.length) {
+    const v = cases.map((c) => c.sec).sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)]; // 방향마다 조금씩 달라 중앙값
+  }
+  const extra = EXTRA[norm(station)]?.[shortLine(from)]?.[shortLine(to)];
+  return extra ?? TRANSFER_SEC;
 }
 
 // 역 이름 표기 차이 흡수 (src/lib/timetable.ts 와 같은 규칙)
