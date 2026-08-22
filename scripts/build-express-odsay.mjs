@@ -117,10 +117,15 @@ async function main() {
 
     const { adj } = lineInfo(c.line);
     let added = 0;
+    // ⚠️ 급행을 못 찾을 때 원인을 알 수 있게, 응답에 들어온 노선 이름을 모아둡니다.
+    //    (ODsay가 급행을 "1호선(급행)"이 아니라 다른 이름으로 줄 수도 있습니다)
+    const seenLanes = new Set();
     for (const p of data?.result?.path ?? []) {
       for (const sp of p.subPath ?? []) {
         if (sp.trafficType !== 1) continue;
-        const lane = parseLane(sp.lane?.[0]?.name);
+        const rawName = sp.lane?.[0]?.name;
+        seenLanes.add(String(rawName ?? "?"));
+        const lane = parseLane(rawName);
         if (!lane.express || lane.line !== c.line) continue;
         const stops = (sp.passStopList?.stations ?? []).map((x) => nn(x.stationName));
         // 급행 정차역을 순서대로 이으면서, 이웃이 아닌 구간만 저장합니다.
@@ -135,7 +140,10 @@ async function main() {
       }
     }
     found += added;
-    console.log(`■ ${c.line} ${c.from}→${c.to}: 건너뛰는 구간 ${added}개`);
+    console.log(
+      `■ ${c.line} ${c.from}→${c.to}: 건너뛰는 구간 ${added}개` +
+        (added ? "" : `  ← 응답에 온 노선 이름: [${[...seenLanes].join(", ")}]`)
+    );
     fs.writeFileSync(SEC_FILE, JSON.stringify(sec));
     await sleep(600);
   }
