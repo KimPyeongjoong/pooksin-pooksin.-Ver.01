@@ -87,8 +87,9 @@ async function schedule(key: string, lineNm: string, updn: string, stnNm: string
     numOfRows: "700", pageNo: "1", tmprTmtblYn: "N",
     upbdnbSe: updn, wkndSe: "평일", lineNm, stnNm,
   });
+  // 공공 시간표는 하루 동안 그대로이므로 서버에 담아둡니다(호출량 절약).
   const res = await fetch(`https://apis.data.go.kr/B553766/schedule/getTrainSch?serviceKey=${key}&${qs}`, {
-    cache: "no-store",
+    next: { revalidate: 21600 },
   });
   const text = await res.text();
   const map = new Map<string, string>();

@@ -38,7 +38,9 @@ export async function GET(request: Request) {
     encodeURIComponent(station);
 
   try {
-    const res = await fetch(url, { cache: "no-store" });
+    // 사용자마다 따로 부르지 않도록 서버에 15초 담아둡니다.
+    // (도착정보 시트를 여러 명이 동시에 봐도 서울시 API 호출량은 그대로입니다)
+    const res = await fetch(url, { next: { revalidate: 15 } });
     const data = await res.json();
     const list: any[] = data?.realtimeArrivalList ?? [];
 

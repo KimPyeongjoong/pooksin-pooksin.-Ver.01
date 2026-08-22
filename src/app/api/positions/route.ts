@@ -44,7 +44,12 @@ export async function GET(request: Request) {
     const url =
       `http://swopenapi.seoul.go.kr/api/subway/${key}/json/realtimePosition/0/200/` +
       encodeURIComponent(line);
-    const res = await fetch(url, { cache: "no-store" });
+    // ⚠️ 사용자마다 따로 부르면 안 됩니다.
+    //
+    // 이 화면들은 20초마다 자동 갱신됩니다. 브라우저가 부를 때마다 서울시 API를
+    // 그대로 부르면, 100명이 보고 있을 때 시간당 수만 건이 나가 하루 한도를
+    // 순식간에 씁니다. 서버 캐시에 15초만 담아두면 몇 명이 보든 호출량은 같습니다.
+    const res = await fetch(url, { next: { revalidate: 15 } });
     const data = await res.json();
     const list: Record<string, string>[] = data?.realtimePositionList ?? [];
 

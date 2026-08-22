@@ -68,6 +68,15 @@ async function findStation(key: string, name: string): Promise<Pt | null> {
   return exact ? { x: Number(exact.x), y: Number(exact.y) } : null;
 }
 
+// 같은 두 역을 여러 사람이(또는 한 사람이 여러 번) 검색하는 일이 잦습니다.
+// ODsay가 주는 소요시간은 평균값이라 시각과 무관하므로, 성공한 결과만 담아둡니다.
+//
+// ⚠️ fetch 단계 캐시(next.revalidate)를 쓰지 않는 이유: ODsay는 한도 초과도
+// HTTP 200에 오류 본문으로 주기 때문에, 그 오류까지 캐시되어 한도가 풀린 뒤에도
+// 몇 시간 동안 계속 실패하게 됩니다. 그래서 여기서 성공만 골라 담습니다.
+const routeCache = new Map<string, { at: number; body: unknown }>();
+const ROUTE_CACHE_MS = 6 * 60 * 60 * 1000; // 6시간
+
 type Fail = { error: string; kind: "same" | "tooClose" | "retry" | "notFound" | "quota"; options: [] };
 const fail = (kind: Fail["kind"], error: string, status = 200) =>
   Response.json({ error, kind, options: [] }, { status });
@@ -82,6 +91,12 @@ export async function GET(request: Request) {
   const key = process.env.ODSAY_API_KEY || "";
   if (!key) return fail("notFound", "경로 서비스 설정이 필요해요");
 
+  const cacheKey = `${from}→${to}`;
+  const cached = routeCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < ROUTE_CACHE_MS) {
+    return Response.json(cached.body);
+  }
+
   try {
     const [s, e] = await Promise.all([findStation(key, from), findStation(key, to)]);
     if (!s || !e) return fail("notFound", "역 위치를 찾지 못했어요");
@@ -95,7 +110,11 @@ export async function GET(request: Request) {
     // 노선도와 실제 시간표로 우리가 직접 구간을 만들어 보여줍니다.
     if (String(data?.error?.code) === "-98") {
       const built = await buildShortRoute(from, to);
-      if (built) return Response.json({ from, to, options: [built], builtLocally: true });
+      if (built) {
+        const body = { from, to, options: [built], builtLocally: true };
+        routeCache.set(cacheKey, { at: Date.now(), body });
+        return Response.json(body);
+      }
       return fail("tooClose", "두 역이 매우 가까워 경로를 만들지 못했어요");
     }
 
@@ -142,7 +161,9 @@ export async function GET(request: Request) {
       };
     });
 
-    return Response.json({ from, to, options });
+    const body = { from, to, options };
+    routeCache.set(cacheKey, { at: Date.now(), body });
+    return Response.json(body);
   } catch (err) {
     // 연결이 끊긴 경우(호출 몰림 등) — 사용자에겐 다시 시도를 안내합니다
     console.error("[/api/route]", err);

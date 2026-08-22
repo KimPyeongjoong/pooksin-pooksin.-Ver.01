@@ -73,7 +73,8 @@ async function findStations(
   const url =
     `${ODSAY}/searchStation?apiKey=${encodeURIComponent(key)}` +
     `&stationName=${encodeURIComponent(name)}&stationClass=2`;
-  const res = await fetch(url, { cache: "no-store" });
+  // 역 ID는 거의 바뀌지 않습니다. ODsay 호출을 아끼려고 하루 담아둡니다.
+  const res = await fetch(url, { next: { revalidate: 86400 } });
   const data = await res.json();
   const list: { stationID: number; stationName: string; laneName: string }[] =
     data?.result?.station ?? [];
@@ -124,7 +125,9 @@ export async function GET(request: Request) {
     }
 
     const url = `${ODSAY}/subwayTimeTable?apiKey=${encodeURIComponent(key)}&stationID=${encodeURIComponent(stationID)}`;
-    const res = await fetch(url, { cache: "no-store" });
+    // 시간표는 하루 동안 그대로입니다. 위의 메모리 캐시는 서버가 재시작하면 사라지지만
+    // (개발 중에는 파일을 저장할 때마다 사라집니다), 이 캐시는 배포 환경에서도 공유됩니다.
+    const res = await fetch(url, { next: { revalidate: 21600 } });
     const data = await res.json();
     const r = data?.result;
     if (data?.error || !r) {
