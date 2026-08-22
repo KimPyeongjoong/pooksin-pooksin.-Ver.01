@@ -19,11 +19,32 @@ async function fetchOnce(url: string) {
   const res = await fetch(url, { cache: "no-store" });
   return res.json();
 }
+// ODsay 오류는 두 가지 모양으로 옵니다.
+//   { error: { code, message } }        ← 보통
+//   { error: [ { code, message } ] }    ← 하루 한도 초과 등 일부 응답
+// 배열인 줄 모르고 객체로만 읽으면 code·message가 undefined가 되어,
+// "하루 한도 초과"가 "일시적 연결 불안정"으로 잘못 안내됩니다.
+type OdsayResp = { error?: unknown } | null | undefined;
+function errOf(data: OdsayResp) {
+  const raw = Array.isArray(data?.error) ? data?.error[0] : data?.error;
+  const e = raw as { code?: unknown; message?: unknown } | null | undefined;
+  if (!e) return null;
+  return { code: String(e.code ?? ""), message: String(e.message ?? "") };
+}
+
+// 오늘 쓸 수 있는 호출 횟수를 다 쓴 경우 (다시 시도해도 소용없음)
+function isQuota(data: OdsayResp) {
+  const e = errOf(data);
+  if (!e) return false;
+  return e.code === "429" || /daily quota|quota exceeded|일일|하루/i.test(e.message);
+}
+
 // 호출이 몰렸을 때 ODsay가 주는 반응 (연결 끊김 또는 "Too Many Requests")
-function isBusy(data: Record<string, any> | null | undefined) {
-  const msg = String(data?.error?.message ?? "");
-  const code = String(data?.error?.code ?? "");
-  return /too many|limit|초과/i.test(msg) || code === "500";
+function isBusy(data: OdsayResp) {
+  const e = errOf(data);
+  if (!e) return false;
+  if (isQuota(data)) return false; // 한도 초과는 "몰림"이 아니라 별도 안내
+  return /too many|limit|초과/i.test(e.message) || e.code === "500";
 }
 async function odsay(url: string) {
   try {
@@ -47,7 +68,7 @@ async function findStation(key: string, name: string): Promise<Pt | null> {
   return exact ? { x: Number(exact.x), y: Number(exact.y) } : null;
 }
 
-type Fail = { error: string; kind: "same" | "tooClose" | "retry" | "notFound"; options: [] };
+type Fail = { error: string; kind: "same" | "tooClose" | "retry" | "notFound" | "quota"; options: [] };
 const fail = (kind: Fail["kind"], error: string, status = 200) =>
   Response.json({ error, kind, options: [] }, { status });
 
@@ -79,6 +100,7 @@ export async function GET(request: Request) {
     }
 
     // 호출 초과·서버 오류를 "경로 없음"으로 보여주면 안 됩니다(경로는 있는데 못 물어본 것)
+    if (isQuota(data)) return fail("quota", "오늘 경로검색 사용량을 다 썼어요");
     if (isBusy(data)) return fail("retry", "잠시 후 다시 시도해 주세요");
     if (data?.error) return fail("retry", "잠시 후 다시 시도해 주세요");
     if (!data?.result?.path?.length) return fail("notFound", "경로를 찾지 못했어요");

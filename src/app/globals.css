@@ -123,7 +123,14 @@ button{font-family:inherit}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:9;background:var(--surface);border-radius:18px 18px 0 0;box-shadow:var(--sheet-shadow);padding:8px 16px 18px;border-top:1px solid var(--line);animation:sheetUp .22s ease}
 @keyframes sheetUp{from{transform:translateY(30px);opacity:.4}to{transform:translateY(0);opacity:1}}
 .grab{width:38px;height:4px;border-radius:3px;background:var(--line-2);margin:2px auto 12px;cursor:grab}
-.st-step{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+/* 환승역에서 어느 노선을 볼지 고르는 줄 (시트 최상단) */
+.st-lines{display:flex;align-items:center;gap:7px;overflow-x:auto;padding:2px 0 12px;
+  margin-bottom:2px;border-bottom:1px solid var(--line);-webkit-overflow-scrolling:touch}
+.st-linebtn{flex:none;min-width:30px;height:30px;padding:0 9px;border-radius:999px;
+  border:1.5px solid;background:var(--surface);font-family:var(--mono);font-size:11.5px;
+  font-weight:800;cursor:pointer;display:grid;place-items:center;white-space:nowrap}
+.st-linebtn.on{box-shadow:0 2px 8px rgba(20,26,38,.18)}
+.st-step{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 14px}
 .st-side{color:var(--muted);font-size:12.5px;font-weight:600;flex:1;background:none;border:none;cursor:pointer}
 .st-side.left{text-align:right} .st-side.right{text-align:left}
 .st-cur{display:flex;align-items:center;gap:7px;background:var(--accent-weak);border:1px solid var(--accent);color:var(--accent-ink);font-weight:700;font-size:14px;border-radius:999px;padding:6px 14px}
@@ -281,6 +288,9 @@ button{font-family:inherit}
 .rf-times{margin-bottom:4px}
 .rf-names{margin-top:4px;font-family:inherit;font-size:11px;font-weight:650}
 .rf-times>span,.rf-names>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 고른 열차가 지금으로부터 얼마나 남았는지 (그래픽 아래 한 칸) */
+.rf-now{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--muted);font-weight:650}
 .rf-end{flex:none!important;text-align:right;color:var(--muted)}
 .rf-bar{display:flex;gap:3px;height:22px}
 .rf-seg{display:flex;align-items:center;justify-content:center;gap:4px;border-radius:5px;min-width:0;overflow:hidden;color:#fff;padding:0 5px}
@@ -302,7 +312,18 @@ button{font-family:inherit}
 .vj-line{font-style:normal;flex:none;color:#fff;font-size:9.5px;font-weight:800;border-radius:6px;padding:2px 6px}
 .vj-sub{font-size:12px;color:var(--ink);font-weight:600}
 .vj-meta{font-size:12px;color:var(--muted);font-weight:550}
-.vj-train{align-self:flex-start;border:1px solid var(--line-2);background:var(--surface-2);border-radius:9px;padding:8px 12px;font-family:var(--mono);font-size:12.5px;font-weight:750;margin:3px 0}
+/* 승차역에 붙는 "곧 오는 열차" 박스 (시간표 3대 + 실시간 위치) */
+.lb{align-self:stretch;display:flex;flex-direction:column;border:1px solid var(--line-2);
+  background:var(--surface-2);border-radius:11px;padding:9px 11px;margin:5px 0 2px}
+.lb-row{display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12.5px;min-width:0}
+.lb-row b{font-family:var(--mono);font-weight:800;color:var(--ink);flex:none}
+.lb-row em{font-style:normal;font-weight:750;color:var(--arr);flex:none}
+.lb-dest{margin-left:auto;color:var(--muted);font-weight:600;font-size:12px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-none{color:var(--warn);font-weight:650}
+.lb-live{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.45}
+.lb-wait{font-size:12px;color:var(--faint);font-weight:600;margin:5px 0 2px}
 /* 구간(노선)마다 놓이는 탑승 칸 선택 버튼 */
 .vj-cta{align-self:stretch;display:flex;align-items:center;gap:7px;margin-top:7px;border:1.5px solid;border-radius:10px;background:var(--surface);padding:10px 12px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
 .vj-cta:active{background:var(--surface-2)}

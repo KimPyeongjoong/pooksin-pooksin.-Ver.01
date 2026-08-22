@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import linemap from "@/lib/linemap.json";
-import { lineColor } from "@/lib/line-colors";
+import { lineColor, shortLine } from "@/lib/line-colors";
 
 type Node = { x: number; y: number; m?: boolean; ind?: boolean; name?: string; cd?: string; lp?: string; mk?: string };
 type Line = { key: string; label: string; indicator: string; color: string; width: number; nodes: Node[] };
@@ -89,7 +89,7 @@ type Focus = {
   dep: string;
   arr: string;
   stations: string[];
-  legs: { line: string; start: string; end: string }[];
+  legs: { line: string; start: string; end: string; stations?: string[] }[];
 };
 type Props = {
   onStationClick?: (name: string) => void;
@@ -101,10 +101,23 @@ type Props = {
   onEnd?: () => void;
   onTimetable?: () => void;
   onLive?: () => void;
+  onEmptyClick?: () => void; // 지도 빈 곳을 눌렀을 때 (팝오버 닫기용)
 };
 
-// 노선명 정규화(라벨 표기 차이 흡수: "경의·중앙선" vs "경의중앙선")
-const normLine = (s: string) => (s || "").replace(/[·\s]/g, "").replace(/선$/, "");
+// 노선명 정규화.
+//
+// ⚠️ 여기서 `shortLine()`을 반드시 거쳐야 합니다. 경로검색(ODsay)은 "수도권 2호선",
+// "9호선(급행)"처럼 지역·급행 표기를 붙여서 주는데, 그걸 그대로 노선도 라벨("2호선")과
+// 비교하면 **영영 못 찾아서 경로 색선이 아예 안 그려집니다**(역 이름만 진해지고
+// 색선은 흐린 채로 남는 증상). shortLine이 그 표기들을 먼저 떼어냅니다.
+const normLine = (s: string) =>
+  shortLine(s || "")
+    .replace(/[·\s]/g, "")
+    .replace(/선$/, "");
+
+// 역 이름 정규화 — 자료마다 괄호 앞 띄어쓰기가 달라서("사우 (김포시청)" vs "사우(김포시청)")
+// 공백을 떼고 비교합니다.
+const normName = (s?: string) => (s || "").replace(/\s/g, "");
 
 export default function SchematicMap({
   onStationClick,
@@ -116,27 +129,90 @@ export default function SchematicMap({
   onEnd,
   onTimetable,
   onLive,
+  onEmptyClick,
 }: Props) {
   const routeStationSet = focus ? new Set(focus.stations) : null;
-  // 출발~도착 사이 "구간"만 뽑아 실제 노선 마디를 따라 그림
+  // 경로 구간을 노선도 위에 진하게 덧그립니다.
+  //
+  // 역 이름 두 개(승차·하차)만으로 "그 사이 노드 전부"를 칠하면 지선에서 크게 틀립니다.
+  // 예: 2호선 성수→신설동은 성수지선(4정거장)인데, 노선도 데이터에서 신설동은 본선
+  // 뒤쪽에 따로 떨어져 있어 성수~대림 40여 개 역이 통째로 칠해졌습니다.
+  //
+  // 그래서 경로검색이 알려준 "그 구간이 지나는 역 목록"을 기준으로, 이웃한 두 역이
+  // 모두 그 목록에 있을 때만 둘 사이를 이어 그립니다. 순환선·지선·급행 모두 안전합니다.
   const routeSegments = focus
-    ? focus.legs
-        .map((leg) => {
-          const line = LINES.find((l) => normLine(l.label) === normLine(leg.line));
-          if (!line) return null;
-          const idxs = line.nodes
-            .map((n, i) => (n.name === leg.start || n.name === leg.end ? i : -1))
+    ? focus.legs.flatMap((leg) => {
+        const line = LINES.find((l) => normLine(l.label) === normLine(leg.line));
+        if (!line) return [];
+        const color = lineColor(line.label);
+        const want = new Set((leg.stations ?? []).map(normName).filter(Boolean));
+
+        // 역 위치 찾기 — 이름뿐 아니라 "같은 자리"에 있는 이름 없는 노드도 함께 찾습니다.
+        //
+        // 순환선(2호선)은 한 바퀴를 돌아 첫 역 좌표로 되돌아오면서 끝나는데, 그 마지막
+        // 노드에는 이름이 없습니다. 이름만으로 찾으면 대림↔신도림 같은 "이음매" 한 구간이
+        // 늘 빠져서, 경로가 그 지점에서 끊겨 보입니다.
+        const posOf = new Map<string, string>(); // "x,y" → 역 이름
+        for (const n of line.nodes) if (n.name) posOf.set(`${n.x},${n.y}`, n.name);
+        const at = (name: string) =>
+          line.nodes
+            .map((n, i) => (normName(posOf.get(`${n.x},${n.y}`)) === normName(name) ? i : -1))
             .filter((i) => i >= 0);
-          if (idxs.length < 2) return null;
-          const a = Math.min(...idxs);
-          const b = Math.max(...idxs);
+
+        const seq = leg.stations ?? [];
+        if (want.size >= 2 && seq.length >= 2) {
           let d = "";
-          line.nodes.slice(a, b + 1).forEach((n, i) => {
-            d += (i === 0 ? "M" : "L") + n.x + " " + n.y;
-          });
-          return { d, color: lineColor(line.label) };
-        })
-        .filter((x): x is { d: string; color: string } => x !== null)
+          for (let k = 0; k + 1 < seq.length; k++) {
+            const A = at(seq[k]);
+            const B = at(seq[k + 1]);
+            if (!A.length || !B.length) continue;
+            // 같은 역이 여러 번 나오면 가장 가까운 조합을 씁니다.
+            let a = -1;
+            let b = -1;
+            let best = Infinity;
+            for (const x of A)
+              for (const y of B)
+                if (Math.abs(y - x) < best) {
+                  best = Math.abs(y - x);
+                  a = Math.min(x, y);
+                  b = Math.max(x, y);
+                }
+            if (a < 0) continue;
+            // 사이에 선이 끊기는 지점(m)이 있으면 잇지 않습니다(다른 지선으로 건너뜀).
+            let broken = false;
+            for (let j = a + 1; j <= b; j++) if (line.nodes[j].m) broken = true;
+            if (broken) continue;
+            // 급행은 역을 건너뛰므로 사이에 역이 몇 개 끼어 있는 게 정상입니다.
+            // 다만 순환선(2호선)에서 반대 방향으로 크게 도는 것을 막으려고 한도를 둡니다.
+            let between = 0;
+            for (let j = a + 1; j < b; j++) if (line.nodes[j].name) between++;
+            if (between > 8) continue;
+            d += `M${line.nodes[a].x} ${line.nodes[a].y}`;
+            for (let j = a + 1; j <= b; j++) d += `L${line.nodes[j].x} ${line.nodes[j].y}`;
+          }
+          if (d) return [{ d, color }];
+        }
+
+        // 역 목록이 없을 때(가까운 역끼리 직접 만든 경로 등)만 쓰는 대비책:
+        // 승차·하차역이 가장 가까이 붙어 있는 조합의 사이를 칠합니다.
+        const starts = at(leg.start);
+        const ends = at(leg.end);
+        if (!starts.length || !ends.length) return [];
+        let a = starts[0];
+        let b = ends[0];
+        for (const s of starts)
+          for (const e of ends)
+            if (Math.abs(e - s) < Math.abs(b - a)) {
+              a = s;
+              b = e;
+            }
+        if (a > b) [a, b] = [b, a];
+        let d = "";
+        line.nodes.slice(a, b + 1).forEach((n, i) => {
+          d += (i === 0 || n.m ? "M" : "L") + n.x + " " + n.y;
+        });
+        return d ? [{ d, color }] : [];
+      })
     : [];
   // viewBox 기반 확대/이동 (CSS scale이 아니라 벡터 자체를 다시 그림 → 항상 선명)
   const containerRef = useRef<HTMLDivElement>(null);
@@ -263,7 +339,18 @@ export default function SchematicMap({
       onPointerLeave={onPointerUp}
       onWheel={onWheel}
     >
-        <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet">
+        <svg
+          viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+          preserveAspectRatio="xMidYMid meet"
+          // 지도의 빈 곳(역·글자가 아닌 곳)을 누르면 팝오버를 닫습니다.
+          // 예전에는 지도 전체를 덮는 투명막으로 처리했는데, 그러면 팝오버가 떠 있는 동안
+          // 지도를 끌거나 확대할 수 없었습니다.
+          onClick={(e) => {
+            if (e.target !== e.currentTarget) return; // 역·라벨을 누른 경우
+            if (drag.current.moved) return; // 지도를 끈 경우
+            onEmptyClick?.();
+          }}
+        >
           {/* 노선 색선 (포커스 시 전체 흐리게) */}
           {LINES.map((l, i) => (
             <path

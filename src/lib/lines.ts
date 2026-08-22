@@ -45,9 +45,14 @@ export function linesAtStation(name: string): { label: string; color: string; in
   }));
 }
 
-// 해당 역이 처음 등장하는 노선 기준으로 앞/뒤 역을 반환
-export function stationNeighbors(name: string): Neighbors | null {
-  for (const l of LINES) {
+// 그 역의 앞/뒤 역.
+//
+// 환승역은 노선마다 앞뒤 역이 다르므로, 어느 노선 기준인지 `line`으로 정할 수 있습니다.
+// 지정하지 않으면 그 역이 처음 등장하는 노선을 씁니다.
+export function stationNeighbors(name: string, line?: string | null): Neighbors | null {
+  const want = line ? norm(line) : null;
+  const pool = want ? LINES.filter((l) => norm(l.label) === want) : LINES;
+  for (const l of (pool.length ? pool : LINES)) {
     const named = l.nodes.filter((n) => n.name);
     const idx = named.findIndex((n) => n.name === name);
     if (idx >= 0) {

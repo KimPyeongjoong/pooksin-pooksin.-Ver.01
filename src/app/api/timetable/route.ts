@@ -52,8 +52,24 @@ function toDirs(list: { up?: OdsayDirection; down?: OdsayDirection } | undefined
 
 type StationHit = { stationID: number; stationName: string; laneName: string };
 
+// ODsay 오류는 객체일 때도, 배열일 때도(하루 한도 초과 등) 있습니다.
+// 배열인 줄 모르고 객체로만 읽으면 "한도 초과"가 "역을 못 찾음"으로 잘못 안내됩니다.
+function odsayError(data: { error?: unknown } | null | undefined) {
+  const raw = Array.isArray(data?.error) ? data?.error[0] : data?.error;
+  const e = raw as { code?: unknown; message?: unknown } | null | undefined;
+  if (!e) return null;
+  const code = String(e.code ?? "");
+  const message = String(e.message ?? "");
+  const quota = code === "429" || /daily quota|quota exceeded/i.test(message);
+  return { code, message, quota };
+}
+const QUOTA_MSG = "오늘 시간표 사용량을 다 썼어요 (내일 다시 쓸 수 있습니다)";
+
 // 역 이름으로 ODsay 역 ID 찾기 (같은 이름의 환승역은 노선마다 ID가 다릅니다)
-async function findStations(key: string, name: string): Promise<StationHit[]> {
+async function findStations(
+  key: string,
+  name: string
+): Promise<{ hits: StationHit[]; quota: boolean }> {
   const url =
     `${ODSAY}/searchStation?apiKey=${encodeURIComponent(key)}` +
     `&stationName=${encodeURIComponent(name)}&stationClass=2`;
@@ -61,9 +77,12 @@ async function findStations(key: string, name: string): Promise<StationHit[]> {
   const data = await res.json();
   const list: { stationID: number; stationName: string; laneName: string }[] =
     data?.result?.station ?? [];
-  return list
-    .filter((s) => s.stationName === name)
-    .map((s) => ({ stationID: s.stationID, stationName: s.stationName, laneName: s.laneName }));
+  return {
+    hits: list
+      .filter((s) => s.stationName === name)
+      .map((s) => ({ stationID: s.stationID, stationName: s.stationName, laneName: s.laneName })),
+    quota: !!odsayError(data)?.quota,
+  };
 }
 
 export async function GET(request: Request) {
@@ -81,8 +100,9 @@ export async function GET(request: Request) {
 
   try {
     if (stationName) {
-      const hits = await findStations(key, stationName);
+      const { hits, quota } = await findStations(key, stationName);
       siblings = hits.map((h) => ({ stationID: h.stationID, line: shortLine(h.laneName) }));
+      if (quota) return Response.json({ error: QUOTA_MSG });
       if (!hits.length) {
         return Response.json({ error: `'${stationName}' 역을 찾지 못했어요` }, { status: 404 });
       }
@@ -108,7 +128,8 @@ export async function GET(request: Request) {
     const data = await res.json();
     const r = data?.result;
     if (data?.error || !r) {
-      return Response.json({ error: data?.error?.message || "시간표를 받지 못했어요" });
+      const e = odsayError(data);
+      return Response.json({ error: e?.quota ? QUOTA_MSG : e?.message || "시간표를 받지 못했어요" });
     }
 
     const line = shortLine(String(r.laneName || ""));
