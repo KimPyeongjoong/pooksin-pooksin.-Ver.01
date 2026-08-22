@@ -7,8 +7,9 @@
 import coordsJson from "@/lib/station-coords.json";
 import { lineColor, shortLine } from "@/lib/line-colors";
 import { buildShortRoute } from "@/lib/short-route";
-import { findRoutes, knownStation } from "@/lib/route-engine";
+import { findRoutes, knownStation, transferCases } from "@/lib/route-engine";
 import { directionFor } from "@/lib/timetable";
+import { lineStations } from "@/lib/lines";
 
 const ODSAY = "https://api.odsay.com/v1/api";
 const COORDS = coordsJson as Record<string, { x: number; y: number }>;
@@ -103,11 +104,30 @@ export async function GET(request: Request) {
   if (knownStation(from) && knownStation(to)) {
     const options = findRoutes(from, to);
     if (options.length) {
-      // 상행/하행을 채웁니다. 이게 없으면 "곧 오는 열차"에 반대 방향 열차가 뜹니다.
-      // (5호선 종로3가에서 동대문역사문화공원으로 가는데 "방화행"이 뜨던 문제)
-      for (const o of options)
-        for (const leg of o.legs)
+      for (const o of options) {
+        for (const leg of o.legs) {
+          // 상행/하행. 이게 없으면 "곧 오는 열차"에 반대 방향 열차가 뜹니다.
+          // (5호선 종로3가에서 동대문역사문화공원으로 가는데 "방화행"이 뜨던 문제)
           (leg as { wayCode: number | null }).wayCode = await directionFor(leg.line, leg.start, leg.end);
+        }
+        // 빠른 환승 칸 — "이 칸에 타고 있으면 다음 환승이 빠릅니다".
+        // 환승역에서 내리는 위치(호차-문)를 그 앞 구간에 붙여줍니다.
+        for (let i = 0; i + 1 < o.legs.length; i++) {
+          const here = o.legs[i];
+          const next = o.legs[i + 1];
+          const cases = transferCases(here.end, here.line, next.line);
+          if (!cases.length) continue;
+          // 같은 역이라도 어느 방향에서 왔느냐에 따라 내리는 칸이 다릅니다.
+          // 이 구간이 진행하던 방향의 다음 역 이름으로 골라냅니다.
+          const order = lineStations(here.line);
+          const iEnd = order.indexOf(here.end);
+          const iPrev = order.indexOf(here.stations[here.stations.length - 2] ?? here.start);
+          const ahead = iEnd >= 0 && iPrev >= 0 ? order[iEnd + Math.sign(iEnd - iPrev)] : undefined;
+          const hit =
+            (ahead ? cases.find((c) => c.fromWay === ahead.replace(/\s/g, "")) : undefined) ?? cases[0];
+          (here as { door: string }).door = hit.off;
+        }
+      }
       return Response.json({ from, to, options, engine: "local" });
     }
   }

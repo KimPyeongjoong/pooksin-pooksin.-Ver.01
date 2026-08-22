@@ -8,16 +8,17 @@
 //     ③ 역 좌표(station-coords.json)     — 거리·요금 계산
 //   이 셋으로 최단시간 경로를 직접 구합니다.
 //
+//     ④ 환승 정보(transfers.json)        — 환승 소요시간 + 몇 호차 몇 번 문
+//
 // 못 하는 것 (정직하게):
-//   - **환승 통로 도보 시간**: 공공 데이터에 없습니다. 지금은 어느 역이든 3분으로 잡습니다.
-//     역마다 실제로는 1분~10분까지 차이가 큽니다. 나중에 사용자에게 모으는 게 목표입니다.
-//   - **빠른 환승 칸 / 내리는 문 방향**: ODsay 고유 정보라 만들 수 없습니다.
 //   - **요금**: 지금은 거리비례 공식으로 계산합니다.
 //     서울교통공사 실시간운임정보(data.go.kr 15143846)를 붙이면 정확해집니다.
+//   - 급행/특급을 따로 계산하지 않습니다. 늘 완행 기준입니다.
 
 import linemap from "./linemap.json";
 import coordsJson from "./station-coords.json";
 import sectionJson from "./section-times.json";
+import transferJson from "./transfers.json";
 import { lineColor, shortLine } from "./line-colors";
 
 type Node = { x: number; y: number; m?: boolean; name?: string };
@@ -25,6 +26,26 @@ type Line = { key: string; label: string; nodes: Node[] };
 const LINES = linemap as Line[];
 const COORDS = coordsJson as Record<string, { x: number; y: number }>;
 const SECTIONS = (sectionJson as { lines: Record<string, Record<string, number>> }).lines;
+
+// 환승 정보 (서울교통공사 "서울 도시철도 환승정보" 자료).
+// 역·노선쌍마다 **실제 걸리는 시간**과 **몇 호차 몇 번 문**으로 내려/타야 하는지가 들어 있습니다.
+// 예전에는 이 둘을 ODsay만 준다고 보고 3분 상수를 썼는데, 실제로는 1분~22분까지 차이가 납니다.
+export type TransferCase = { fromWay: string; toWay: string; off: string; on: string; sec: number };
+const TRANSFERS = (
+  transferJson as { stations: Record<string, Record<string, Record<string, TransferCase[]>>> }
+).stations;
+
+export function transferCases(station: string, from: string, to: string): TransferCase[] {
+  return TRANSFERS[norm(station)]?.[shortLine(from)]?.[shortLine(to)] ?? [];
+}
+
+// 그 역에서 A노선 → B노선 환승에 걸리는 시간(초). 자료에 없으면 상수를 씁니다.
+function transferSecOf(station: string, from: string, to: string): number {
+  const cases = transferCases(station, from, to);
+  if (!cases.length) return TRANSFER_SEC;
+  const v = cases.map((c) => c.sec).sort((a, b) => a - b);
+  return v[Math.floor(v.length / 2)]; // 방향마다 조금씩 달라 중앙값
+}
 
 // 역 이름 표기 차이 흡수 (src/lib/timetable.ts 와 같은 규칙)
 const NAME_ALIAS: Record<string, string> = { 이수: "총신대입구", 서해구청: "서구청" };
@@ -182,7 +203,8 @@ function shortestPath(from: string, to: string, transferSec = TRANSFER_SEC): Ste
     for (const other of LINES_AT.get(station) ?? []) {
       if (other === line) continue;
       const nk = keyOf({ station, line: other });
-      const nd = d + transferSec;
+      // 역마다 실제 환승 시간이 다릅니다(1분~22분). 자료에 있으면 그 값을 씁니다.
+      const nd = d + (transferSec === TRANSFER_SEC ? transferSecOf(station, line, other) : transferSec);
       if (nd < (dist.get(nk) ?? Infinity)) {
         dist.set(nk, nd);
         prev.set(nk, { key, station, line });
