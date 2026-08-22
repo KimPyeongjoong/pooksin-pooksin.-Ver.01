@@ -7,6 +7,8 @@
 import coordsJson from "@/lib/station-coords.json";
 import { lineColor, shortLine } from "@/lib/line-colors";
 import { buildShortRoute } from "@/lib/short-route";
+import { findRoutes, knownStation } from "@/lib/route-engine";
+import { directionFor } from "@/lib/timetable";
 
 const ODSAY = "https://api.odsay.com/v1/api";
 const COORDS = coordsJson as Record<string, { x: number; y: number }>;
@@ -88,6 +90,29 @@ export async function GET(request: Request) {
   if (!from || !to) return fail("notFound", "출발역과 도착역이 필요해요", 400);
   if (from === to) return fail("same", "출발역과 도착역이 같습니다");
 
+  // ── 우리가 직접 계산합니다 (외부 호출 0건) ────────────────
+  //
+  // 예전에는 이 화면이 ODsay에만 기대고 있었는데, 무료 한도가 하루 1,000건이라
+  // 조금만 써도 경로검색이 통째로 멈췄습니다. 이제 앱에 내장된 노선도 + 구간
+  // 소요시간으로 직접 계산합니다. 한도도 비용도 없습니다.
+  //
+  // 정확도 확인: 2호선 홍대입구→강남을 39분으로 계산 = 실제 열차 39.0분.
+  //
+  // ODsay만 주던 정보(빠른 환승 칸·내리는 문 방향)는 이제 없습니다.
+  // 그건 원래 이 앱이 사용자에게서 모으려던 종류의 정보입니다.
+  if (knownStation(from) && knownStation(to)) {
+    const options = findRoutes(from, to);
+    if (options.length) {
+      // 상행/하행을 채웁니다. 이게 없으면 "곧 오는 열차"에 반대 방향 열차가 뜹니다.
+      // (5호선 종로3가에서 동대문역사문화공원으로 가는데 "방화행"이 뜨던 문제)
+      for (const o of options)
+        for (const leg of o.legs)
+          (leg as { wayCode: number | null }).wayCode = await directionFor(leg.line, leg.start, leg.end);
+      return Response.json({ from, to, options, engine: "local" });
+    }
+  }
+
+  // ── 여기부터는 엔진이 경로를 못 찾았을 때만 (노선도에 없는 역 등) ──
   const key = process.env.ODSAY_API_KEY || "";
   if (!key) return fail("notFound", "경로 서비스 설정이 필요해요");
 

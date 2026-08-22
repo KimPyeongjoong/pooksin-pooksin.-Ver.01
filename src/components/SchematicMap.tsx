@@ -131,7 +131,9 @@ export default function SchematicMap({
   onLive,
   onEmptyClick,
 }: Props) {
-  const routeStationSet = focus ? new Set(focus.stations) : null;
+  // ⚠️ 노선도의 역 이름에는 줄바꿈이 들어 있어서(두 줄로 그리려고) 경로가 준 이름과
+  //    그냥 비교하면 19개 역이 경로에 포함돼도 강조되지 않았습니다. 정규화해서 비교합니다.
+  const routeStationSet = focus ? new Set(focus.stations.map(normName)) : null;
   // 경로 구간을 노선도 위에 진하게 덧그립니다.
   //
   // 역 이름 두 개(승차·하차)만으로 "그 사이 노드 전부"를 칠하면 지선에서 크게 틀립니다.
@@ -391,7 +393,7 @@ export default function SchematicMap({
               stroke={m.color}
               strokeWidth={0.4}
               className="rm-dot"
-              opacity={focus ? (routeStationSet!.has(m.name) ? 1 : 0.22) : 1}
+              opacity={focus ? (routeStationSet!.has(normName(m.name)) ? 1 : 0.22) : 1}
               onClick={() => clickStation(m.name)}
             />
           ))}
@@ -407,7 +409,7 @@ export default function SchematicMap({
               stroke="var(--ink)"
               strokeWidth={0.4}
               className="rm-dot"
-              opacity={focus ? (routeStationSet!.has(m.name) ? 1 : 0.22) : 1}
+              opacity={focus ? (routeStationSet!.has(normName(m.name)) ? 1 : 0.22) : 1}
               onClick={() => clickStation(m.name)}
             />
           ))}
@@ -438,7 +440,7 @@ export default function SchematicMap({
           {showLabels &&
             LABELS.map((m, i) => {
               const o = labelOffset(m.lp);
-              const onRoute = !focus || routeStationSet!.has(m.name);
+              const onRoute = !focus || routeStationSet!.has(normName(m.name));
               return (
                 <text
                   key={`l-${i}`}

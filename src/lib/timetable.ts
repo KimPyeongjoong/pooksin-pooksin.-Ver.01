@@ -9,6 +9,7 @@
 
 import { shortLine } from "./line-colors";
 import type { DayType } from "./holidays";
+import { lineStations } from "./lines";
 
 export type Departure = { min: number; dest: string };
 export type Dirs = { up: Departure[]; down: Departure[] };
@@ -97,6 +98,44 @@ const norm = (s: string) => NAME_ALIAS[bare(s)] ?? bare(s);
 // 앱은 평일 / 토요일 / 휴일 세 가지로 나누지만,
 // 공공 시간표는 평일 / 주말 두 가지뿐입니다. 토요일·휴일은 같은 주말 시간표를 씁니다.
 const DAY_KEY: Record<DayType, "wd" | "we"> = { weekday: "wd", sat: "we", sun: "we" };
+
+// "이 역에서 저 역으로 가려면 상행인가 하행인가?" → 1=상행/외선, 2=하행/내선
+//
+// 경로를 직접 계산할 때(route-engine) 방향 코드를 만들 수 없어서 여기서 채웁니다.
+// 방향을 모르면 "곧 오는 열차" 목록에 **반대 방향 열차**가 뜹니다.
+// (5호선 종로3가에서 동대문역사문화공원으로 가는데 "방화행"이 뜨던 문제)
+//
+// 판단 방법: 그 방향 열차들의 행선지가 목적지 쪽에 있는지 봅니다.
+export async function directionFor(
+  line: string,
+  from: string,
+  to: string
+): Promise<1 | 2 | null> {
+  const t = await table(line);
+  if (!t) return null;
+  const order = lineStations(line).map(norm);
+  const iFrom = order.indexOf(norm(from));
+  const iTo = order.indexOf(norm(to));
+  if (iFrom < 0 || iTo < 0 || iFrom === iTo) return null;
+  const want = Math.sign(iTo - iFrom);
+
+  const key = Object.keys(t.stations).find((k) => norm(k) === norm(from));
+  if (!key) return null;
+  const entry = t.stations[key];
+
+  const scoreOf = (way: "up" | "down") => {
+    let score = 0;
+    for (const [, d] of entry[way]?.wd ?? []) {
+      const i = order.indexOf(norm(t.dests[d] ?? ""));
+      if (i >= 0 && i !== iFrom) score += Math.sign(i - iFrom) === want ? 1 : -1;
+    }
+    return score;
+  };
+  const up = scoreOf("up");
+  const down = scoreOf("down");
+  if (up === down) return null;
+  return up > down ? 1 : 2;
+}
 
 export type StationTimetable = {
   line: string;

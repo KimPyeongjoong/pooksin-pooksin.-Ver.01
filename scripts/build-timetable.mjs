@@ -185,15 +185,24 @@ function adjacentPairs(line) {
   const l = linemap.find((x) => nn(x.label) === nn(label));
   const set = new Set();
   if (!l) return set;
+
+  // ⚠️ 순환선(2호선)은 한 바퀴를 돌아 첫 역 자리로 되돌아오면서 끝나는데,
+  //    그 마지막 노드에는 **이름이 없습니다**. 이름만 보고 이으면 대림↔신도림 한 구간이
+  //    통째로 빠져서, 나중에 경로를 계산할 때 그 구간만 거리로 어림잡게 됩니다.
+  //    같은 좌표에 있는 이름 없는 노드를 그 역으로 봅니다.
+  const nameAt = new Map();
+  for (const n of l.nodes) if (n.name) nameAt.set(`${n.x},${n.y}`, n.name);
+
   let prev = null;
   for (const n of l.nodes) {
     if (n.m) prev = null; // 선이 끊기는 지점에서는 이어지지 않습니다
-    if (!n.name) continue;
-    if (prev) {
-      set.add(`${nn(prev)}|${nn(n.name)}`);
-      set.add(`${nn(n.name)}|${nn(prev)}`);
+    const name = n.name ?? nameAt.get(`${n.x},${n.y}`);
+    if (!name) continue;
+    if (prev && nn(prev) !== nn(name)) {
+      set.add(`${nn(prev)}|${nn(name)}`);
+      set.add(`${nn(name)}|${nn(prev)}`);
     }
-    prev = n.name;
+    prev = name;
   }
   return set;
 }
