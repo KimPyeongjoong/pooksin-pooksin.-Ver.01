@@ -10,6 +10,7 @@ import { buildShortRoute } from "@/lib/short-route";
 import { findRoutes, knownStation, transferCases } from "@/lib/route-engine";
 import { directionFor } from "@/lib/timetable";
 import { lineStations } from "@/lib/lines";
+import { lookupFare } from "@/lib/fare";
 
 const ODSAY = "https://api.odsay.com/v1/api";
 const COORDS = coordsJson as Record<string, { x: number; y: number }>;
@@ -80,6 +81,9 @@ async function findStation(key: string, name: string): Promise<Pt | null> {
 const routeCache = new Map<string, { at: number; body: unknown }>();
 const ROUTE_CACHE_MS = 6 * 60 * 60 * 1000; // 6시간
 
+// 기본운임 외에 별도 요금을 더 받는 노선들 (운임 API의 addCrgExpln 설명 기준)
+const EXTRA_FARE_LINES = new Set(["신분당선", "의정부경전철", "용인경전철", "우이신설선", "김포골드라인"]);
+
 type Fail = { error: string; kind: "same" | "tooClose" | "retry" | "notFound" | "quota"; options: [] };
 const fail = (kind: Fail["kind"], error: string, status = 200) =>
   Response.json({ error, kind, options: [] }, { status });
@@ -128,7 +132,21 @@ export async function GET(request: Request) {
           (here as { door: string }).door = hit.off;
         }
       }
-      return Response.json({ from, to, options, engine: "local" });
+      // 요금을 공식 값으로 바꿔줍니다. 못 받으면 엔진이 계산한 거리비례 값을 그대로 둡니다.
+      //
+      // ⚠️ `gnrlCardFare`는 **거리 요금만**이고 별도운임 노선의 추가요금은 빠져 있습니다.
+      //    (강남→판교 14.2km = 1,650원 = 거리 공식값 그대로. 신분당선 1,000원이 빠짐)
+      //    그래서 그 경로가 실제로 별도운임 노선을 탈 때만 더해줍니다.
+      //    같은 두 역이라도 어느 노선으로 가느냐에 따라 요금이 다르기 때문입니다.
+      const fare = await lookupFare(from, to);
+      if (fare) {
+        for (const o of options) {
+          const usesExtra = o.legs.some((l) => EXTRA_FARE_LINES.has(l.line));
+          o.payment = fare.card + (usesExtra ? fare.addFare : 0);
+        }
+      }
+
+      return Response.json({ from, to, options, engine: "local", fare });
     }
   }
 
