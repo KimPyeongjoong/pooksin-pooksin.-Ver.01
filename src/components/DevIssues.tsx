@@ -18,6 +18,7 @@ type Issue = {
   key: string; // 같은 문제를 묶는 기준 (원문)
   level: Level;
   raw: string; // 원문 (개발자용)
+  where: string; // 문제가 난 파일:줄 (예: components/TrainStrip.tsx:72)
   count: number; // 같은 문제가 몇 번 났는지
   first: string; // 처음 난 시각 HH:MM:SS
   last: string; // 마지막으로 난 시각
@@ -165,6 +166,48 @@ function tidy(s: string): string {
   return s.replace(/\s+/g, " ").trim().slice(0, 600);
 }
 
+// 문제가 실제로 난 우리 파일을 찾습니다.
+//
+// 이 패널이 console.error를 가로채기 때문에, 그냥 두면 모든 오류가
+// "DevIssues.tsx에서 났다"고 나옵니다. 그래서 호출 흔적(스택)을 훑어
+// 이 파일과 React·Next.js 내부를 건너뛰고, 우리가 쓴 첫 파일을 골라냅니다.
+//
+// 개발 중에는 여러 파일이 하나로 합쳐져 실려 옵니다. 흔적에 남는 모양이 두 가지라
+// 둘 다 봅니다.
+//   ① 원래 경로가 주소에 붙어 오는 경우
+//      at TrainStrip (http://…/src_abc._.js?id=…/src/components/TrainStrip.tsx+…)
+//   ② 훅 안에서 난 경우 — 경로 없이 함수 이름만
+//      at TrainStrip.useCallback[load] (http://…/src_abc._.js:5189:21)
+// 합쳐진 파일 기준 줄 번호는 원본과 달라 쓸모가 없으므로 쓰지 않습니다.
+function callSite(): string {
+  const stack = new Error().stack ?? "";
+  let file = "";
+  let name = "";
+  for (const line of stack.split("\n").slice(1)) {
+    if (/DevIssues\.tsx/.test(line)) continue;
+    if (/node_modules|webpack-internal|<anonymous>/.test(line)) continue;
+    // 이 패널 자신의 함수들. 합쳐진 파일에서는 경로가 안 보이고 이름만 남기 때문에
+    // 파일 이름으로 거를 수 없어 이름으로 직접 건너뜁니다.
+    if (
+      /^\s*at\s+(?:Object\.)?(?:DevIssues|callSite|add|say|console\.error|console\.warn|error|warn)\b/.test(
+        line
+      )
+    )
+      continue;
+    if (!file) {
+      const m = line.match(/((?:src|app)\/[^\s?+)]+?\.[jt]sx?)/);
+      if (m) file = m[1];
+    }
+    if (!name) {
+      // "TrainStrip.useCallback[load]" 처럼 붙어 오면 앞쪽 이름만 씁니다.
+      const m = line.match(/^\s*at\s+([A-Za-z_$][\w$]*)/);
+      if (m) name = m[1];
+    }
+    if (file && name) break;
+  }
+  return file && name ? `${file} · ${name}` : file || name;
+}
+
 export default function DevIssues() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [open, setOpen] = useState(false);
@@ -173,7 +216,7 @@ export default function DevIssues() {
   useEffect(() => {
     // 같은 문제는 하나로 묶고 횟수만 올립니다.
     // (가만히 둬도 숫자가 오르는 경우, 무엇이 반복되는지 한눈에 보입니다.)
-    const add = (level: Level, raw: string) => {
+    const add = (level: Level, raw: string, where = "") => {
       const text = tidy(raw);
       if (!text) return;
       setIssues((prev) => {
@@ -185,23 +228,27 @@ export default function DevIssues() {
           next.unshift(next.splice(i, 1)[0]); // 방금 난 것을 맨 위로
           return next;
         }
-        return [{ key: text, level, raw: text, count: 1, first: now, last: now }, ...prev].slice(0, 60);
+        const item: Issue = { key: text, level, raw: text, where, count: 1, first: now, last: now };
+        return [item, ...prev].slice(0, 60);
       });
     };
 
     const origError = console.error;
     const origWarn = console.warn;
 
+    const say = (a: unknown) => (a instanceof Error ? a.message : String(a));
+
     console.error = function (...args: unknown[]) {
-      add("error", args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+      add("error", args.map(say).join(" "), callSite());
       return origError.apply(console, args as []);
     };
     console.warn = function (...args: unknown[]) {
-      add("warn", args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+      add("warn", args.map(say).join(" "), callSite());
       return origWarn.apply(console, args as []);
     };
 
-    const onErr = (e: ErrorEvent) => add("error", e.message || String(e.error));
+    const onErr = (e: ErrorEvent) =>
+      add("error", e.message || String(e.error), e.filename ? `${e.filename}:${e.lineno}` : "");
     const onRej = (e: PromiseRejectionEvent) =>
       add("error", e.reason instanceof Error ? e.reason.message : String(e.reason));
     window.addEventListener("error", onErr);
@@ -285,6 +332,13 @@ export default function DevIssues() {
                     {ex.todo}
                   </p>
 
+                  {it.where && (
+                    <p className="di-line">
+                      <b>어디서</b>
+                      <code className="di-where">{it.where}</code>
+                    </p>
+                  )}
+
                   <div className="di-foot">
                     <span>
                       처음 {it.first}
@@ -334,6 +388,7 @@ const CSS = `
   background:var(--inset);border-radius:6px;padding:2px 6px}
 .di-line{margin:8px 0 0;font-size:12.5px;line-height:1.6;color:var(--muted);font-weight:550}
 .di-line b{display:block;font-size:11px;font-weight:750;color:var(--faint);margin-bottom:1px}
+.di-where{font-family:var(--mono);font-size:11.5px;color:var(--accent-ink);word-break:break-all}
 .di-foot{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:11px;color:var(--faint);font-weight:600}
 .di-foot button{margin-left:auto;border:1px solid var(--line-2);border-radius:7px;background:var(--surface);
   font-family:inherit;font-size:11px;font-weight:700;color:var(--muted);padding:4px 8px;cursor:pointer}
