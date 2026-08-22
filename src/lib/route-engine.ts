@@ -48,12 +48,14 @@ const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<str
 // 그 역에서 A노선 → B노선 환승에 걸리는 시간(초).
 // ① 서울교통공사 공식 자료 → ② ODsay로 보충한 값 → ③ 그래도 없으면 상수
 function transferSecOf(station: string, from: string, to: string): number {
-  const cases = transferCases(station, from, to);
+  // 같은 노선의 급행 ↔ 완행은 "환승"이 아니라 승강장에서 기다리는 것입니다.
+  if (baseLine(from) === baseLine(to)) return EXPRESS_WAIT_SEC;
+  const cases = transferCases(station, baseLine(from), baseLine(to));
   if (cases.length) {
     const v = cases.map((c) => c.sec).sort((a, b) => a - b);
     return v[Math.floor(v.length / 2)]; // 방향마다 조금씩 달라 중앙값
   }
-  const extra = EXTRA[norm(station)]?.[shortLine(from)]?.[shortLine(to)];
+  const extra = EXTRA[norm(station)]?.[shortLine(baseLine(from))]?.[shortLine(baseLine(to))];
   return extra ?? TRANSFER_SEC;
 }
 
@@ -104,6 +106,22 @@ function sectionSec(line: string, a: string, b: string): number {
   return Math.max(60, Math.round((d / DEFAULT_SPEED_KMH) * 3600));
 }
 
+// 급행 구간 (공공 시간표에서 뽑음). "여의도|노량진" → 초
+const EXPRESS = (sectionJson as { express?: Record<string, Record<string, number>> }).express ?? {};
+
+// 급행은 완행과 **다른 노선처럼** 다룹니다.
+//
+// 그래야 두 가지가 맞습니다.
+//   ① 급행은 서는 역이 달라서, 안 서는 역에서 타고 내릴 수 없습니다.
+//   ② 완행에서 급행으로 갈아타려면 승강장에서 기다려야 합니다(공짜가 아님).
+// 이름 뒤에 "(급행)"을 붙여 구분합니다. 화면에 그대로 보여도 자연스럽습니다.
+const EXPRESS_SUFFIX = "(급행)";
+export const isExpress = (line: string) => line.endsWith(EXPRESS_SUFFIX);
+export const baseLine = (line: string) =>
+  isExpress(line) ? line.slice(0, -EXPRESS_SUFFIX.length) : line;
+// 같은 역에서 완행 ↔ 급행 갈아타기(=승강장에서 기다리기)에 잡는 시간
+const EXPRESS_WAIT_SEC = 210;
+
 (function buildGraph() {
   for (const l of LINES) {
     const line = l.label;
@@ -135,6 +153,41 @@ function sectionSec(line: string, a: string, b: string): number {
         GRAPH.get(cur)!.push({ to: prev, line, sec });
       }
       prev = cur;
+    }
+  }
+
+  // 급행 노선을 따로 얹습니다.
+  //
+  // 급행이 이웃 역 사이를 달리는 구간(안 건너뛰는 구간)도 있어야 노선이 이어지므로,
+  // 급행이 서는 역들을 노선 순서대로 늘어놓고 그 사이를 전부 이어줍니다.
+  for (const [base, edges] of Object.entries(EXPRESS)) {
+    // 건너뛰는 구간이 한두 개뿐이면 급행 노선이 아니라 자료 잡음입니다.
+    // (인천2호선·용인경전철에서 1개씩 나왔는데 그 노선들엔 급행이 없습니다)
+    if (Object.keys(edges).length < 3) continue;
+    const exLine = base + EXPRESS_SUFFIX;
+    const stops = new Set<string>();
+    for (const k of Object.keys(edges)) {
+      const [a, b] = k.split("|");
+      stops.add(a);
+      stops.add(b);
+    }
+    // 급행이 서는 역 = 그 노선 순서대로
+    const order = (LINES.find((l) => shortLine(l.label) === shortLine(base))?.nodes ?? [])
+      .map((n) => (n.name ? norm(n.name) : ""))
+      .filter((s, i, arr) => s && arr.indexOf(s) === i && stops.has(s));
+
+    for (const s of order) {
+      if (!LINES_AT.has(s)) LINES_AT.set(s, new Set());
+      LINES_AT.get(s)!.add(exLine);
+    }
+    for (let i = 0; i + 1 < order.length; i++) {
+      const a = order[i];
+      const b = order[i + 1];
+      const sec = edges[`${a}|${b}`] ?? edges[`${b}|${a}`] ?? sectionSec(base, a, b);
+      if (!GRAPH.has(a)) GRAPH.set(a, []);
+      if (!GRAPH.has(b)) GRAPH.set(b, []);
+      GRAPH.get(a)!.push({ to: b, line: exLine, sec });
+      GRAPH.get(b)!.push({ to: a, line: exLine, sec });
     }
   }
 })();
@@ -281,7 +334,8 @@ function buildRoute(from: string, to: string, transferSec: number): EngineRoute 
       const endSec = steps[j].sec;
       legs.push({
         type: "subway",
-        line: shortLine(line),
+        // shortLine이 괄호를 떼어내므로 급행 표시는 따로 붙여줍니다
+        line: isExpress(line) ? shortLine(baseLine(line)) + EXPRESS_SUFFIX : shortLine(line),
         color: lineColor(line),
         start: DISPLAY.get(stations[0]) ?? stations[0],
         end: DISPLAY.get(stations[stations.length - 1]) ?? stations[stations.length - 1],

@@ -207,6 +207,90 @@ function adjacentPairs(line) {
   return set;
 }
 
+// ── 급행 구간 뽑기 ──────────────────────────────────────────
+//
+// 시간표에는 급행이 그대로 들어 있습니다. 예) 9호선 급행 E9502는
+//   당산 → 여의도 → 노량진 → 동작 → 고속터미널 …  (사이 역들을 건너뜁니다)
+// 이걸 안 쓰면 경로 계산이 늘 완행 기준이 되어 실제보다 한참 느리게 나옵니다.
+//
+// ⚠️ 열차번호가 재사용되므로(같은 번호로 하루에 여러 번 운행) 정차 "순서"를 믿으면
+//    두 운행이 뒤섞입니다. 그래서 **정차역 집합**으로 판단합니다.
+//    집합을 노선 순서대로 늘어놓고, 이웃하지 않은 두 역이 연달아 나오면 그 사이를 건너뛴 것입니다.
+function lineOrderOf(line) {
+  const label = LINEMAP_NAME[line] ?? line;
+  const l = linemap.find((x) => nn(x.label) === nn(label));
+  if (!l) return [];
+  const nameAt = new Map();
+  for (const n of l.nodes) if (n.name) nameAt.set(n.x + "," + n.y, n.name);
+  const out = [], seen = new Set();
+  for (const n of l.nodes) {
+    const nm = n.name ?? nameAt.get(n.x + "," + n.y);
+    if (!nm) continue;
+    const k = nn(nm);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
+}
+
+//
+// ⚠️ 한 열차번호가 하루에 여러 번 운행합니다(1호선은 한 번호에 정차 기록이 342개나 됩니다).
+//    정차역을 그냥 모으면 여러 운행이 합쳐져 "모든 역에 서는 완행"처럼 보여, 급행이 사라집니다.
+//    그래서 **운행 단위로 쪼갠 뒤** 각 운행에서 건너뛴 구간을 찾습니다.
+//    쪼개는 기준: 노선 순서를 거슬러 올라가거나(방향이 바뀜), 20분 넘게 비었을 때.
+function splitRuns(stops, lineOrder) {
+  const withIdx = stops
+    .map((s) => ({ ...s, i: lineOrder.indexOf(nn(s.stn)) }))
+    .filter((s) => s.i >= 0)
+    .sort((a, b) => a.sec - b.sec);
+  const runs = [];
+  let cur = [];
+  let dir = 0;
+  for (const s of withIdx) {
+    if (!cur.length) { cur = [s]; dir = 0; continue; }
+    const last = cur[cur.length - 1];
+    const d = Math.sign(s.i - last.i);
+    const gap = s.sec - last.sec;
+    const isNew = d === 0 || gap > 20 * 60 || (dir !== 0 && d !== dir);
+    if (isNew) {
+      if (cur.length >= 3) runs.push(cur);
+      cur = [s];
+      dir = 0;
+    } else {
+      if (dir === 0) dir = d;
+      cur.push(s);
+    }
+  }
+  if (cur.length >= 3) runs.push(cur);
+  return runs;
+}
+
+function addExpressEdges(rows, acc, lineOrder, adj) {
+  if (!lineOrder.length) return;
+  const byTrain = new Map();
+  for (const r of rows) {
+    if (!r.no || !r.stn) continue;
+    if (!byTrain.has(r.no)) byTrain.set(r.no, []);
+    byTrain.get(r.no).push(r);
+  }
+  for (const stops of byTrain.values()) {
+    for (const run of splitRuns(stops, lineOrder)) {
+      // 이 운행이 건너뛴 구간이 있는지
+      for (let i = 0; i + 1 < run.length; i++) {
+        const a = nn(run[i].stn);
+        const b = nn(run[i + 1].stn);
+        if (adj.has(`${a}|${b}`)) continue; // 이웃끼리면 급행 건너뜀이 아님
+        const d = run[i + 1].sec - run[i].sec;
+        if (d <= 0 || d > 20 * 60) continue;
+        const k = `${a}|${b}`;
+        if (!acc.has(k)) acc.set(k, new Map());
+        acc.get(k).set(d, (acc.get(k).get(d) ?? 0) + 1);
+      }
+    }
+  }
+}
+
 function addSectionTimes(rows, acc, adj) {
   // 열차번호별로 "출발시각 순서"대로 늘어놓습니다.
   const byTrain = new Map();
@@ -268,6 +352,8 @@ async function main() {
     const stations = new Map();
     const sectionAcc = new Map(); // "A|B" → Map(소요초 → 몇 번 나왔나)
     const adj = adjacentPairs(line); // 노선도상 실제 이웃 쌍
+    const expressAcc = new Map(); // 급행이 건너뛴 구간
+    const lineOrder = lineOrderOf(line);
     // 2호선에서 본선 데이터가 이미 담긴 역 (지선이 덮어쓰지 않게)
     const fromMain = new Set();
 
@@ -275,6 +361,7 @@ async function main() {
       for (const [wknd, dayKey] of Object.entries(DAYS)) {
         const rows = await collect(key, api, line, dir, wknd, console.log);
         addSectionTimes(rows, sectionAcc, adj);
+        addExpressEdges(rows, expressAcc, lineOrder, adj);
         for (const r of rows) {
           if (!r.stn) continue;
           // 2호선: 본선(내선·외선)에 있는 역은 지선(상·하행)으로 덮어쓰지 않습니다.
@@ -334,6 +421,15 @@ async function main() {
     const prev = fs.existsSync(secFile) ? JSON.parse(fs.readFileSync(secFile, "utf8")) : { built, lines: {} };
     prev.built = built;
     prev.lines[line] = pickModes(sectionAcc);
+    prev.express ??= {};
+    // 급행은 여러 열차에서 반복돼야 진짜 패턴입니다. 뒤섞인 자료가 만든 우연을 걸러냅니다.
+    const ex = {};
+    for (const [k, tally] of expressAcc) {
+      let best = 0, max = 0, total = 0;
+      for (const [d, n] of tally) { total += n; if (n > max) { max = n; best = d; } }
+      if (total >= 10 && best) ex[k] = best;
+    }
+    if (Object.keys(ex).length) prev.express[line] = ex;
     fs.writeFileSync(secFile, JSON.stringify(prev));
     console.log(`  → section-times.json  ${line} 구간 ${Object.keys(prev.lines[line]).length}개`);
   }
