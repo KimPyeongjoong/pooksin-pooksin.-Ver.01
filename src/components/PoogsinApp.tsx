@@ -1456,140 +1456,92 @@ function BottomNav({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
 
 // 상세 경로의 각 승차역에 붙는 "곧 오는 열차" 박스.
 //
-// 두 가지를 보여줍니다.
-//   ① 시간표 — 이 역에서 지금 이후로 떠나는 열차 3대 (ODsay)
-//   ② 실시간 — 그 방향 열차 중 이 역에 가장 가까이 온 열차 (서울시, 서울 운영 노선만)
+// **실시간 기준**입니다. 서버(/api/next-trains)가 이렇게 만듭니다.
+//   ① 서울시 실시간 열차위치로 이 역 쪽으로 오고 있는 열차를 고르고
+//   ② 앱에 내장된 구간 소요시간으로 여기까지 걸릴 시간을 계산합니다 (**지연이 그대로 반영**됩니다)
+//   ③ 도착정보에 남은 시간이 있으면 그 값을 씁니다
+//   ④ 모자라거나 실시간이 없는 노선이면 내장 시간표로 채웁니다
 //
 // 환승이 있으면 구간마다 역·방향이 다르므로 구간별로 각자 불러옵니다.
+type NextTrain = {
+  source: "live" | "timetable";
+  etaSec: number | null; // 실시간일 때만: 도착까지 남은 초
+  min: number; // 자정 기준 분 (화면에 찍는 시각)
+  dest: string;
+  express: boolean;
+  from?: string; // 그 열차가 지금 있는 역
+  stops?: number; // 몇 정거장 전
+  last?: boolean;
+};
+
 function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
-  const [deps, setDeps] = useState<Departure[] | null>(null);
-  const [ttLoading, setTtLoading] = useState(true);
-  const [live, setLive] = useState<{ station: string; stops: number } | null>(null);
-  const [liveOff, setLiveOff] = useState(false);
-  // 한 번이라도 실시간 자료를 받아봤는지. "찾는 중"과 "없음"을 구분하려고 둡니다.
-  // (급행 구간은 급행만 세므로, 지금 다가오는 급행이 없는 게 정상일 때가 있습니다)
-  const [livePolled, setLivePolled] = useState(false);
+  const [trains, setTrains] = useState<NextTrain[] | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const line = leg.line || "";
   const start = leg.start || "";
   const end = leg.end || "";
-  const stationID = leg.stationID ?? null;
   const wayCode = leg.wayCode ?? null;
   // 경로 결과의 노선 이름이 "1호선(급행)"이면 이 구간은 급행을 타는 구간입니다.
-  const expressKind = /\((급행|특급)\)$/.exec(line)?.[1] ?? "";
+  const expressKind = /((급행|특급))$/.exec(line)?.[1] ?? "";
 
-  // ① 시간표
   useEffect(() => {
-    if (!stationID && !(start && line)) return;
-    setTtLoading(true);
-    const q = new URLSearchParams();
-    if (start) q.set("station", start);
-    if (line) q.set("line", line);
-    if (stationID) q.set("stationID", String(stationID));
-    let alive = true;
-    fetch(`/api/timetable?${q}`)
-      .then((r) => r.json())
-      .then((d: TimetableRes) => {
-        if (!alive) return;
-        const day = d.today ?? "weekday";
-        const way = wayCode === 2 ? "down" : "up";
-        const list = d.lists?.[day]?.[way] ?? [];
-        // 급행 구간이면 급행 열차만 보여줍니다.
-        // (완행 시각까지 같이 보이면 그 시각에 급행이 오는 줄 오해합니다)
-        setDeps(expressKind ? list.filter((t) => t.ex === expressKind) : list);
-      })
-      .catch(() => alive && setDeps([]))
-      .finally(() => alive && setTtLoading(false));
-    return () => {
-      alive = false;
-    };
-  }, [stationID, start, line, wayCode, expressKind]);
-
-  // ② 실시간 열차 위치 — 20초마다 갱신
-  useEffect(() => {
-    if (!line || !start) return;
+    if (!start || !line) return;
     let alive = true;
     const load = () => {
-      fetch(`/api/positions?line=${encodeURIComponent(line)}`)
+      const q = new URLSearchParams({ station: start, line });
+      if (end) q.set("to", end); // 진행 방향을 알아내는 데 씁니다
+      if (wayCode) q.set("way", String(wayCode));
+      fetch(`/api/next-trains?${q}`)
         .then((r) => r.json())
-        .then((d: { supported?: boolean; trains?: TrainPos[] }) => {
+        .then((d: { trains?: NextTrain[] }) => {
           if (!alive) return;
-          if (!d.supported) {
-            setLiveOff(true);
-            setLive(null);
-            return;
-          }
-          setLiveOff(false);
-          // 진행 방향이 앞(index 증가)이 되도록 역 순서를 맞춥니다.
-          const all = lineStations(line);
-          const si = all.indexOf(start);
-          const ei = all.indexOf(end);
-          const ordered = si >= 0 && ei >= 0 && ei < si ? [...all].reverse() : all;
-          const boardIdx = ordered.indexOf(start);
-          if (boardIdx < 0) return setLive(null);
-          const want = wayCode === 2 ? "down" : "up";
-          // 아직 이 역에 못 온 같은 방향 열차 중 가장 가까운 것
-          let best: { station: string; stops: number } | null = null;
-          for (const t of d.trains ?? []) {
-            if (t.updn !== want) continue;
-            // 급행 구간이면 급행 열차만 봅니다.
-            // (서울시 실시간 자료의 급행 표시 directAt 은 믿을 만합니다 — 실측:
-            //  1호선 78대 중 10대가 급행으로 표시됐고 전부 경인선 구간이었습니다)
-            if (expressKind && !t.express) continue;
-            const ti = ordered.indexOf(t.station);
-            if (ti < 0 || ti > boardIdx) continue;
-            const stops = boardIdx - ti;
-            if (!best || stops < best.stops) best = { station: t.station, stops };
-          }
-          setLive(best);
-          setLivePolled(true);
+          setTrains(d.trains ?? []);
         })
-        .catch(() => alive && setLive(null));
+        .catch(() => alive && setTrains([]))
+        .finally(() => alive && setLoading(false));
     };
     load();
+    // 20초마다 다시 받습니다 (서버가 15초 캐시를 쓰므로 서울시 API 호출량은 늘지 않습니다)
     const id = window.setInterval(load, 20_000);
     return () => {
       alive = false;
       window.clearInterval(id);
     };
-  }, [line, start, end, wayCode, expressKind]);
+  }, [start, end, line, wayCode]);
 
-  // 지금 이후로 떠나는 열차 3대 (막차가 지났으면 마지막 3대)
-  const next3 = (() => {
-    if (!deps?.length) return [];
-    const i = deps.findIndex((d) => d.min >= nowMin);
-    return i < 0 ? deps.slice(-3) : deps.slice(i, i + 3);
-  })();
-
-  if (ttLoading) return <span className="lb-wait">곧 오는 열차 확인 중…</span>;
-  if (!next3.length && liveOff) return null;
-
-  return (
-    <span className="lb">
-      {next3.map((d, i) => (
-        <span className="lb-row" key={i}>
-          <b>{hhmm(d.min)}</b>
-          <em>{d.min - nowMin >= 0 ? `${d.min - nowMin}분` : "지난 열차"}</em>
-          {d.ex && <em className="tt-badge exp">{d.ex}</em>}
-          <span className="lb-dest">{d.dest ? `${d.dest}행` : ""}</span>
-        </span>
-      ))}
-      {!next3.length && (
+  if (loading) return <span className="lb-wait">곧 오는 열차 확인 중…</span>;
+  if (!trains?.length)
+    return (
+      <span className="lb">
         <span className="lb-row lb-none">
           {expressKind ? `오늘 남은 ${expressKind}이 없어요` : "오늘 남은 열차가 없어요"}
         </span>
-      )}
-      <span className="lb-live">
-        {liveOff
-          ? "실시간 위치는 이 노선에서 제공되지 않아요"
-          : live
-            ? live.stops === 0
-              ? `실시간 · 지금 ${withYeok(start)}에 열차가 있어요`
-              : `실시간 · 가장 가까운 ${expressKind || "열차"} ${withYeok(live.station)} (${live.stops}정거장 전)`
-            : livePolled
-              ? `실시간 · 지금 다가오는 ${expressKind || "열차"}이 없어요`
-              : "실시간 · 다가오는 열차를 찾는 중…"}
       </span>
+    );
+
+  return (
+    <span className="lb">
+      {trains.map((t, i) => {
+        // 실시간이면 도착까지 남은 시간을 그대로 쓰고, 시간표면 지금 시각과의 차이로 셉니다.
+        const left = t.etaSec != null ? Math.max(0, Math.round(t.etaSec / 60)) : t.min - nowMin;
+        return (
+          <span className="lb-row" key={i}>
+            <b>{hhmm(t.min)}</b>
+            <em>{left <= 0 ? "곧 도착" : `${left}분`}</em>
+            {/* 어디서 온 값인지 숨기지 않습니다 — 실시간이면 지금 어느 역에 있는지도 알려줍니다 */}
+            {t.source === "live" ? (
+              <em className="lb-tag live" title={t.from ? `${t.from} ${t.stops}정거장 전` : ""}>
+                실시간
+              </em>
+            ) : (
+              <em className="lb-tag">시간표</em>
+            )}
+            {t.express && <em className="tt-badge exp">{expressKind || "급행"}</em>}
+            <span className="lb-dest">{t.dest ? `${t.dest}행` : ""}</span>
+          </span>
+        );
+      })}
     </span>
   );
 }

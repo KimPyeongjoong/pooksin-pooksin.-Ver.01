@@ -317,7 +317,7 @@ button{font-family:inherit}
 .vj-line{font-style:normal;flex:none;color:#fff;font-size:9.5px;font-weight:800;border-radius:6px;padding:2px 6px}
 .vj-sub{font-size:12px;color:var(--ink);font-weight:600}
 .vj-meta{font-size:12px;color:var(--muted);font-weight:550}
-/* 승차역에 붙는 "곧 오는 열차" 박스 (시간표 3대 + 실시간 위치) */
+/* 승차역에 붙는 "곧 오는 열차" 박스 — 실시간 열차위치로 계산한 3대 (없으면 시간표) */
 .lb{align-self:stretch;display:flex;flex-direction:column;border:1px solid var(--line-2);
   background:var(--surface-2);border-radius:11px;padding:9px 11px;margin:5px 0 2px}
 .lb-row{display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12.5px;min-width:0}
@@ -326,8 +326,10 @@ button{font-family:inherit}
 .lb-dest{margin-left:auto;color:var(--muted);font-weight:600;font-size:12px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lb-none{color:var(--warn);font-weight:650}
-.lb-live{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);
-  font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.45}
+/* 이 시각이 어디서 온 값인지 (실시간 계산 / 정시 시간표) */
+.lb-tag{font-size:9.5px;font-weight:800;letter-spacing:-.2px;border-radius:4px;padding:1px 4px;
+  color:var(--muted);background:var(--inset);border:1px solid var(--line-2)}
+.lb-tag.live{color:#fff;background:var(--arr);border-color:transparent}
 .lb-wait{font-size:12px;color:var(--faint);font-weight:600;margin:5px 0 2px}
 /* 구간(노선)마다 놓이는 탑승 칸 선택 버튼 */
 .vj-cta{align-self:stretch;display:flex;align-items:center;gap:7px;margin-top:7px;border:1.5px solid;border-radius:10px;background:var(--surface);padding:10px 12px;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
