@@ -1466,6 +1466,9 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
   const [ttLoading, setTtLoading] = useState(true);
   const [live, setLive] = useState<{ station: string; stops: number } | null>(null);
   const [liveOff, setLiveOff] = useState(false);
+  // 한 번이라도 실시간 자료를 받아봤는지. "찾는 중"과 "없음"을 구분하려고 둡니다.
+  // (급행 구간은 급행만 세므로, 지금 다가오는 급행이 없는 게 정상일 때가 있습니다)
+  const [livePolled, setLivePolled] = useState(false);
 
   const line = leg.line || "";
   const start = leg.start || "";
@@ -1529,12 +1532,17 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
           let best: { station: string; stops: number } | null = null;
           for (const t of d.trains ?? []) {
             if (t.updn !== want) continue;
+            // 급행 구간이면 급행 열차만 봅니다.
+            // (서울시 실시간 자료의 급행 표시 directAt 은 믿을 만합니다 — 실측:
+            //  1호선 78대 중 10대가 급행으로 표시됐고 전부 경인선 구간이었습니다)
+            if (expressKind && !t.express) continue;
             const ti = ordered.indexOf(t.station);
             if (ti < 0 || ti > boardIdx) continue;
             const stops = boardIdx - ti;
             if (!best || stops < best.stops) best = { station: t.station, stops };
           }
           setLive(best);
+          setLivePolled(true);
         })
         .catch(() => alive && setLive(null));
     };
@@ -1544,7 +1552,7 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
       alive = false;
       window.clearInterval(id);
     };
-  }, [line, start, end, wayCode]);
+  }, [line, start, end, wayCode, expressKind]);
 
   // 지금 이후로 떠나는 열차 3대 (막차가 지났으면 마지막 3대)
   const next3 = (() => {
@@ -1577,8 +1585,10 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
           : live
             ? live.stops === 0
               ? `실시간 · 지금 ${withYeok(start)}에 열차가 있어요`
-              : `실시간 · 가장 가까운 열차 ${withYeok(live.station)} (${live.stops}정거장 전)`
-            : "실시간 · 다가오는 열차를 찾는 중…"}
+              : `실시간 · 가장 가까운 ${expressKind || "열차"} ${withYeok(live.station)} (${live.stops}정거장 전)`
+            : livePolled
+              ? `실시간 · 지금 다가오는 ${expressKind || "열차"}이 없어요`
+              : "실시간 · 다가오는 열차를 찾는 중…"}
       </span>
     </span>
   );
