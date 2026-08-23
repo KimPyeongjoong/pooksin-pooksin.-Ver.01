@@ -23,6 +23,7 @@ import expressJson from "./express.json";
 import transferJson from "./transfers.json";
 import extraJson from "./transfers-extra.json";
 import walkJson from "./transfer-times.json";
+import kricJson from "./transfer-times-kric.json";
 import { lineColor, shortLine } from "./line-colors";
 
 type Node = { x: number; y: number; m?: boolean; name?: string };
@@ -50,12 +51,20 @@ const WALK = (
   walkJson as { stations: Record<string, Record<string, Record<string, { sec: number; m: number | null }>>> }
 ).stations;
 
-// 위 두 자료에도 없는 환승(GTX-A 등)을 예전에 재서 채워둔 값. 초 단위.
+// 레일포털(KRIC) "역사별 환승정보"로 채운 값.
+// 위 둘은 서울교통공사 자료라 **양쪽 다 서울교통공사가 아닌 환승**(회기·용산·부평·김포공항 등)이 비는데,
+// 이건 전국 철도운영기관을 덮습니다. 환승거리를 같은 기준(1.2m/s)으로 시간으로 바꿔 넣습니다.
+// (scripts/build-transfers-kric.mjs · 레일포털 키가 있어야 채워집니다. 없으면 빈 파일)
+const KRIC = (
+  kricJson as { stations: Record<string, Record<string, Record<string, { sec: number; m: number | null }>>> }
+).stations;
+
+// 위 자료들에도 없는 환승(GTX-A 등)을 예전에 재서 채워둔 값. 초 단위.
 const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<string, number>>> })
   .stations;
 
 // 그 역에서 A노선 → B노선 환승에 걸리는 시간(초).
-// ① 환승정보(호차·문까지) → ② 환승역거리 → ③ 예전에 재둔 보충값 → ④ 그래도 없으면 상수
+// ① 환승정보(호차·문까지) → ② 환승역거리 → ③ 레일포털 → ④ 예전에 재둔 보충값 → ⑤ 그래도 없으면 상수
 function transferSecOf(station: string, from: string, to: string): number {
   // 같은 노선의 급행 ↔ 완행은 "환승"이 아니라 승강장에서 기다리는 것입니다.
   // 기다리는 시간은 **타려는 쪽**의 배차에 달렸습니다(뜸한 급행으로 갈아타면 오래 기다림).
@@ -69,6 +78,8 @@ function transferSecOf(station: string, from: string, to: string): number {
   const b = shortLine(baseLine(to));
   const walk = WALK[norm(station)]?.[a]?.[b];
   if (walk?.sec) return walk.sec;
+  const kric = KRIC[norm(station)]?.[a]?.[b];
+  if (kric?.sec) return kric.sec;
   const extra = EXTRA[norm(station)]?.[a]?.[b];
   return extra ?? TRANSFER_SEC;
 }
