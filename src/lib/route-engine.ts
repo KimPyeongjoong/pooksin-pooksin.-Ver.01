@@ -22,6 +22,7 @@ import sectionJson from "./section-times.json";
 import expressJson from "./express.json";
 import transferJson from "./transfers.json";
 import extraJson from "./transfers-extra.json";
+import walkJson from "./transfer-times.json";
 import { lineColor, shortLine } from "./line-colors";
 
 type Node = { x: number; y: number; m?: boolean; name?: string };
@@ -42,13 +43,19 @@ export function transferCases(station: string, from: string, to: string): Transf
   return TRANSFERS[norm(station)]?.[shortLine(from)]?.[shortLine(to)] ?? [];
 }
 
-// 서울교통공사 자료가 없는 환승(코레일·GTX·민자 노선)을 ODsay로 재서 채워둔 것.
-// scripts/build-transfers-odsay.mjs 참고. 값은 초.
+// 환승 거리·소요시간 (서울교통공사 "환승역거리 소요시간 정보" OA-13290).
+// 호차·문은 없지만, 위 자료에 없는 **코레일·민자 노선으로 갈아타는 경우**가 들어 있습니다.
+// 값은 환승연결통로 최단거리를 보행속도 1.2m/s로 나눈 공식 계산값입니다.
+const WALK = (
+  walkJson as { stations: Record<string, Record<string, Record<string, { sec: number; m: number | null }>>> }
+).stations;
+
+// 위 두 자료에도 없는 환승(GTX-A 등)을 예전에 재서 채워둔 값. 초 단위.
 const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<string, number>>> })
   .stations;
 
 // 그 역에서 A노선 → B노선 환승에 걸리는 시간(초).
-// ① 서울교통공사 공식 자료 → ② ODsay로 보충한 값 → ③ 그래도 없으면 상수
+// ① 환승정보(호차·문까지) → ② 환승역거리 → ③ 예전에 재둔 보충값 → ④ 그래도 없으면 상수
 function transferSecOf(station: string, from: string, to: string): number {
   // 같은 노선의 급행 ↔ 완행은 "환승"이 아니라 승강장에서 기다리는 것입니다.
   // 기다리는 시간은 **타려는 쪽**의 배차에 달렸습니다(뜸한 급행으로 갈아타면 오래 기다림).
@@ -58,7 +65,11 @@ function transferSecOf(station: string, from: string, to: string): number {
     const v = cases.map((c) => c.sec).sort((a, b) => a - b);
     return v[Math.floor(v.length / 2)]; // 방향마다 조금씩 달라 중앙값
   }
-  const extra = EXTRA[norm(station)]?.[shortLine(baseLine(from))]?.[shortLine(baseLine(to))];
+  const a = shortLine(baseLine(from));
+  const b = shortLine(baseLine(to));
+  const walk = WALK[norm(station)]?.[a]?.[b];
+  if (walk?.sec) return walk.sec;
+  const extra = EXTRA[norm(station)]?.[a]?.[b];
   return extra ?? TRANSFER_SEC;
 }
 
@@ -77,6 +88,22 @@ export const norm = (s: string) => NAME_ALIAS[bare(s)] ?? bare(s);
 const TRANSFER_SEC = 180; // 환승 1회에 잡는 시간 (공공 데이터 없음 → 임시 상수)
 const DEFAULT_SPEED_KMH = 32; // 구간 소요시간이 없을 때 거리로 추정할 때 쓰는 표정속도
 const BOARD_WAIT_SEC = 0; // 승차 대기는 시간표 화면에서 따로 다룹니다
+
+// ── 이름만 같고 실제로는 다른 역 ─────────────────────────────
+//
+// ⚠️ 수도권에는 **이름이 같은 다른 역**이 있습니다.
+//    5호선 양평역(서울 영등포구) 과 경의중앙선 양평역(경기 양평군) — 40km 떨어져 있습니다.
+//    이름만 보고 환승역으로 묶으면 "여의도 → 용문 21분" 같은 있을 수 없는 경로가 나옵니다.
+//    (실제로는 한 시간 반이 넘습니다)
+//
+// 가려내는 법: 노선도에 그려진 위치를 봅니다. 진짜 환승역은 같은 자리(또는 바로 옆)에 그려지는데,
+// 양평은 187만큼 떨어져 있습니다. 그다음으로 먼 신촌(2호선↔경의중앙선)이 14이니 사이가 넉넉합니다.
+// 신촌처럼 걸어서 갈아탈 수 있는 곳은 그대로 두고, 확실히 다른 역만 끊습니다.
+const SPLIT_DIST = 30;
+const SPLIT = new Set<string>(); // "역|노선A|노선B"
+const splitKey = (s: string, a: string, b: string) => `${s}|${a}|${b}`;
+// 역 → 노선 → 노선도에 그려진 자리
+const NODE_AT = new Map<string, Map<string, { x: number; y: number }>>();
 
 // ── 노선 그래프 ─────────────────────────────────────────────
 type Edge = { to: string; line: string; sec: number };
@@ -177,6 +204,9 @@ const waitFor = (line: string) => EX_LINE.get(line)?.wait ?? EXPRESS_WAIT_SEC;
       if (!DISPLAY.has(cur)) DISPLAY.set(cur, name.replace(/\s+/g, ""));
       if (!LINES_AT.has(cur)) LINES_AT.set(cur, new Set());
       LINES_AT.get(cur)!.add(line);
+      // 이름이 같은 역이 노선마다 어디에 그려져 있는지 (아래에서 "다른 역"을 가려내는 데 씁니다)
+      if (!NODE_AT.has(cur)) NODE_AT.set(cur, new Map());
+      if (!NODE_AT.get(cur)!.has(line)) NODE_AT.get(cur)!.set(line, { x: n.x, y: n.y });
       if (prev && prev !== cur) {
         const sec = sectionSec(line, prev, cur);
         if (!GRAPH.has(prev)) GRAPH.set(prev, []);
@@ -186,6 +216,19 @@ const waitFor = (line: string) => EX_LINE.get(line)?.wait ?? EXPRESS_WAIT_SEC;
       }
       prev = cur;
     }
+  }
+
+  // 이름만 같고 실제로는 다른 역을 찾아 환승을 끊어둡니다 (위 SPLIT_DIST 설명 참고).
+  for (const [station, byLine] of NODE_AT) {
+    const ls = [...byLine];
+    for (let i = 0; i < ls.length; i++)
+      for (let j = i + 1; j < ls.length; j++) {
+        const [la, pa] = ls[i];
+        const [lb, pb] = ls[j];
+        if (Math.hypot(pa.x - pb.x, pa.y - pb.y) <= SPLIT_DIST) continue;
+        SPLIT.add(splitKey(station, la, lb));
+        SPLIT.add(splitKey(station, lb, la));
+      }
   }
 
   // 급행 노선을 따로 얹습니다.
@@ -294,6 +337,8 @@ function shortestPath(from: string, to: string, transferSec = TRANSFER_SEC): Ste
     // ② 같은 역에서 다른 노선으로 환승
     for (const other of LINES_AT.get(station) ?? []) {
       if (other === line) continue;
+      // 이름만 같고 실제로는 다른 역이면 갈아탈 수 없습니다 (양평 5호선 ↔ 경의중앙선)
+      if (SPLIT.has(splitKey(station, baseLine(line), baseLine(other)))) continue;
       const nk = keyOf({ station, line: other });
       // 역마다 실제 환승 시간이 다릅니다(1분~22분). 자료에 있으면 그 값을 씁니다.
       const walk = transferSec === TRANSFER_SEC ? transferSecOf(station, line, other) : transferSec;
