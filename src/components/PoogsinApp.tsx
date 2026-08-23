@@ -41,7 +41,37 @@ type RouteLeg = {
   stations?: string[];
   stationID?: number | null; // (더 이상 쓰지 않음 — 예전 ODsay 호환 필드)
   wayCode?: number | null; // 1=상행/외선, 2=하행/내선
+  transferMin?: number; // 앞 구간에서 이 구간으로 갈아탈 때 걸어가는 시간(분)
 };
+
+// 구간마다 몇 시에 타는지 계산합니다.
+//
+// 총 소요시간은 구간 시간의 단순 합보다 큽니다. 그 차이(slack)가 곧 환승역에서
+// 걸어가고 기다리는 시간이라, 환승 지점에 나눠 넣어야 구간별 시각을 더한 값이 총 소요시간과 맞습니다.
+// 요약 시트와 상세 화면이 **같은 값**을 보여주도록 한곳에 둡니다.
+function legTiming(route: RouteData, departAt: number) {
+  const rideCount = route.legs.filter((l) => l.type === "subway").length;
+  const legSum = route.legs.reduce((s, l) => s + (l.min || 0), 0);
+  const transfers = Math.max(0, rideCount - 1);
+  const slack = Math.max(0, (route.totalTime || 0) - legSum);
+  const waitEach = transfers > 0 ? Math.floor(slack / transfers) : 0;
+  const waitRest = transfers > 0 ? slack - waitEach * transfers : 0; // 나머지는 첫 환승에
+
+  let acc = departAt;
+  let seenRides = 0;
+  const timed = route.legs.map((l, i) => {
+    if (l.type === "subway") {
+      if (seenRides > 0) acc += waitEach + (seenRides === 1 ? waitRest : 0);
+      seenRides++;
+    }
+    const start = acc;
+    acc += l.min || 0;
+    return { l, i, start };
+  });
+  const arriveAt = Math.max(acc, departAt + (route.totalTime || 0));
+  // 지하철 구간만 뽑되, 원래 순서(i)를 기억해 바로 뒤의 도보 구간을 찾을 수 있게 합니다.
+  return { timed, rides: timed.filter((x) => x.l.type === "subway"), arriveAt };
+}
 
 // 출발역의 실제 시간표 (/api/timetable)
 // ex 가 있으면 급행입니다 ("급행" 또는 "특급").
@@ -937,24 +967,63 @@ export default function PoogsinApp() {
                     {fmtAmPm(journeyStart)} – {fmtAmPm(journeyStart + (route.totalTime || 0))} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
                   </span>
                 </div>
-                <div className="segbar">
-                  {route.legs
-                    .filter((l) => l.type === "subway")
-                    .flatMap((l, i, a) => {
-                      const els = [
-                        <span key={`s${i}`} className="seg" style={{ flex: Math.max(1, l.stationCount || 1), background: l.color }}>
-                          <small>{l.line}</small>
-                        </span>,
-                      ];
-                      if (i < a.length - 1)
-                        els.push(<span key={`g${i}`} className="seg" style={{ flex: 0.6, background: "var(--line-2)" }} />);
-                      return els;
-                    })}
-                </div>
-                <div className="seg-ends">
-                  <span>{dep}</span>
-                  <span>{arr}</span>
-                </div>
+                {/* 한눈에 보는 막대: 위에 승차 시각, 안에 노선·소요시간, 회색 칸에 환승 도보,
+                    아래에 역 이름(출발·환승·도착). 세 줄이 같은 flex 값을 써서 세로로 맞습니다. */}
+                {(() => {
+                  const { rides, arriveAt } = legTiming(route, journeyStart);
+                  // 막대 한 칸씩: 열차 구간과 그 사이 회색 환승 칸
+                  const cells = rides.flatMap(({ l, start }, i) => {
+                    const out: {
+                      kind: "ride" | "walk";
+                      flex: number;
+                      leg: RouteLeg;
+                      start: number;
+                    }[] = [{ kind: "ride", flex: Math.max(1.2, l.stationCount || 1), leg: l, start }];
+                    const next = rides[i + 1];
+                    if (next)
+                      out.push({
+                        kind: "walk",
+                        flex: 0.9,
+                        leg: next.l,
+                        start: next.start,
+                      });
+                    return out;
+                  });
+                  return (
+                    <div className="segwrap">
+                      <div className="seg-times">
+                        {cells.map((c, i) => (
+                          <span key={i} style={{ flex: c.flex }}>
+                            {c.kind === "ride" ? hhmm(c.start) : ""}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="segbar">
+                        {cells.map((c, i) =>
+                          c.kind === "ride" ? (
+                            <span key={i} className="seg" style={{ flex: c.flex, background: c.leg.color }}>
+                              <small>{c.leg.line}</small>
+                              <small className="segmin">{c.leg.min}분</small>
+                            </span>
+                          ) : (
+                            <span key={i} className="seg walk" style={{ flex: c.flex }}>
+                              {/* 환승 도보 시간 — 서울교통공사 환승정보에서 온 실제 값 */}
+                              <small>{c.leg.transferMin ?? 3}분</small>
+                            </span>
+                          )
+                        )}
+                      </div>
+                      <div className="seg-names">
+                        {cells.map((c, i) => (
+                          <span key={i} style={{ flex: c.flex }}>
+                            {c.kind === "ride" ? withYeok(c.leg.start || "") : ""}
+                          </span>
+                        ))}
+                        <span className="seg-arr">{withYeok(arr || "")}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ textAlign: "center", color: "var(--faint)", fontSize: 11, marginTop: 12 }}>
                   ▲ 눌러서 상세 경로 보기
                 </div>
@@ -1566,31 +1635,8 @@ function RouteDetail({
       </div>
     );
   }
-  // ODsay가 알려주는 총 소요시간은 구간 시간의 단순 합보다 큽니다.
-  // 그 차이가 곧 "환승역에서 다음 열차를 기다리는 시간"이라, 환승 지점에 나눠 넣어
-  // 구간별 시각을 더한 값이 총 소요시간과 정확히 맞게 만듭니다.
-  const rideCount = route.legs.filter((l) => l.type === "subway").length;
-  const legSum = route.legs.reduce((s, l) => s + (l.min || 0), 0);
-  const transfers = Math.max(0, rideCount - 1);
-  const slack = Math.max(0, (route.totalTime || 0) - legSum);
-  const waitEach = transfers > 0 ? Math.floor(slack / transfers) : 0;
-  const waitRest = transfers > 0 ? slack - waitEach * transfers : 0; // 나머지는 첫 환승에
-
-  let acc = departAt;
-  let seenRides = 0;
-  const timed = route.legs.map((l, i) => {
-    if (l.type === "subway") {
-      if (seenRides > 0) acc += waitEach + (seenRides === 1 ? waitRest : 0);
-      seenRides++;
-    }
-    const start = acc;
-    acc += l.min || 0;
-    return { l, i, start };
-  });
-  const arriveAt = Math.max(acc, departAt + (route.totalTime || 0));
-
-  // 지하철 구간만 뽑되, 원래 순서(i)를 기억해 바로 뒤의 도보 구간을 찾을 수 있게 합니다.
-  const rides = timed.filter((x) => x.l.type === "subway");
+  // 구간별 시각은 요약 시트와 같은 계산을 씁니다 (legTiming 참고)
+  const { timed, rides, arriveAt } = legTiming(route, departAt);
 
   return (
     <div className="scroll" style={{ background: "var(--surface)" }}>

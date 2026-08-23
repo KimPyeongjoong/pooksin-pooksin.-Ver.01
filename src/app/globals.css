@@ -242,10 +242,26 @@ button{font-family:inherit}
 .rs-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .rs-head .dur{font-size:24px;font-weight:800;letter-spacing:-.02em}
 .rs-head .sub{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:600}
-.segbar{display:flex;gap:3px;align-items:center;margin-bottom:6px}
-.seg{height:9px;border-radius:5px;display:flex;align-items:center;justify-content:center}
-.seg small{font-family:var(--mono);font-size:8px;color:#fff;font-weight:700}
-.seg-ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-weight:600}
+/* 경로 요약 막대 — 위(승차 시각) · 막대(노선·소요시간·환승 도보) · 아래(역 이름)
+   세 줄이 같은 flex 값을 써서 세로로 맞습니다. */
+.segwrap{margin-top:2px}
+.seg-times{display:flex;gap:3px;margin-bottom:3px}
+.seg-times span{font-family:var(--mono);font-size:10.5px;font-weight:750;color:var(--muted);
+  min-width:0;overflow:hidden;white-space:nowrap}
+.segbar{display:flex;gap:3px;align-items:center;margin-bottom:5px}
+/* 한 정거장짜리 구간도 글자가 들어가도록 최소 너비를 줍니다
+   (구간 4개 + 회색 3개라도 56*4 + 34*3 = 326px 로 모바일 폭 안에 들어갑니다) */
+.seg{height:18px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:5px;
+  min-width:56px;overflow:hidden;padding:0 5px}
+.seg.walk{min-width:34px}
+.seg small{font-size:9.5px;color:#fff;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg .segmin{font-family:var(--mono);opacity:.85;flex:none}
+/* 환승 도보 구간 (회색) */
+.seg.walk{background:var(--line-2)}
+.seg.walk small{color:var(--muted);font-family:var(--mono);font-weight:750}
+.seg-names{display:flex;gap:3px;font-size:11px;color:var(--muted);font-weight:600}
+.seg-names span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.seg-names .seg-arr{flex:none;margin-left:auto;padding-left:4px;color:var(--ink);font-weight:700}
 
 /* ---- 공통 헤더 / 버튼 ---- */
 .appbar{display:flex;align-items:center;gap:10px;padding:12px 16px;font-weight:700;font-size:16px;flex:none;border-bottom:1px solid var(--line);background:var(--surface)}

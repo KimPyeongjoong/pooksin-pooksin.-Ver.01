@@ -14,7 +14,7 @@
 //      빠른 환승 칸 → 서울교통공사 환승정보(OA-22521)
 //      환승 소요시간 → 같은 자료 (없는 조합은 3분 상수)
 
-import { findRoutes, knownStation, transferCases } from "@/lib/route-engine";
+import { findRoutes, knownStation, transferCases, transferSecOf } from "@/lib/route-engine";
 import { directionFor } from "@/lib/timetable";
 import { lineStations } from "@/lib/lines";
 import { lookupFare } from "@/lib/fare";
@@ -51,6 +51,12 @@ export async function GET(request: Request) {
     for (let i = 0; i + 1 < o.legs.length; i++) {
       const here = o.legs[i];
       const next = o.legs[i + 1];
+      // 환승역에서 걸어가는 데 걸리는 시간 (화면의 회색 구간에 적습니다).
+      // 서울교통공사 환승정보·환승역거리에서 온 실제 값이고, 없으면 3분 상수입니다.
+      (next as { transferMin?: number }).transferMin = Math.max(
+        1,
+        Math.round(transferSecOf(here.end, here.line, next.line) / 60)
+      );
       const cases = transferCases(here.end, here.line, next.line);
       if (!cases.length) continue;
       // 같은 역이라도 어느 방향에서 왔느냐에 따라 내리는 칸이 다릅니다.

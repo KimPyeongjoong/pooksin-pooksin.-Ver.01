@@ -65,7 +65,7 @@ const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<str
 
 // 그 역에서 A노선 → B노선 환승에 걸리는 시간(초).
 // ① 환승정보(호차·문까지) → ② 환승역거리 → ③ 레일포털 → ④ 예전에 재둔 보충값 → ⑤ 그래도 없으면 상수
-function transferSecOf(station: string, from: string, to: string): number {
+export function transferSecOf(station: string, from: string, to: string): number {
   // 같은 노선의 급행 ↔ 완행은 "환승"이 아니라 승강장에서 기다리는 것입니다.
   // 기다리는 시간은 **타려는 쪽**의 배차에 달렸습니다(뜸한 급행으로 갈아타면 오래 기다림).
   if (baseLine(from) === baseLine(to)) return waitFor(to);
