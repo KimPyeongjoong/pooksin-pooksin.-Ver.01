@@ -15,6 +15,7 @@
 //      환승 소요시간 → 같은 자료 (없는 조합은 3분 상수)
 
 import { findRoutes, knownStation, transferCases, transferSecOf } from "@/lib/route-engine";
+import { findPath } from "@/lib/shortest-path";
 import { directionFor } from "@/lib/timetable";
 import { lineStations } from "@/lib/lines";
 import { lookupFare } from "@/lib/fare";
@@ -37,14 +38,47 @@ export async function GET(request: Request) {
     return fail("notFound", "노선도에 없는 역이에요");
   }
 
-  const options = findRoutes(from, to);
+  // ── ① 공공 API 먼저 ─────────────────────────────────────────
+  //
+  // 서울교통공사 "최단경로이동정보"는 경로를 통째로 줍니다 —
+  // 구간별 **실제 열차 시각**·상하행·행선지·통과역(급행)·환승 걸음/대기·요금까지.
+  // 우리가 직접 계산하던 것보다 정확합니다(시간표를 그대로 쓰니까요).
+  //
+  // `at`(출발 기준 시각)을 받으면 그 시각 이후로 탈 수 있는 열차로 답해줍니다.
+  const at = searchParams.get("at"); // "1320" (자정 기준 분) 또는 비움 = 지금
+  const when = new Date();
+  // ⚠️ `at`이 없을 때 Number(null)은 0이라 자정(00:00)으로 물어보게 됩니다.
+  //    그러면 막차가 끊긴 시각이라 대부분 "경로 없음"이 돼 폴백으로 새 버렸습니다.
+  const atMin = at ? Number(at) : NaN;
+  if (Number.isFinite(atMin) && atMin >= 0) {
+    when.setHours(Math.floor(atMin / 60) % 24, atMin % 60, 0, 0);
+    if (atMin >= 24 * 60) when.setDate(when.getDate() + 1); // 자정 넘긴 시각
+  }
+  const api = (
+    await Promise.all([findPath(from, to, when, "duration"), findPath(from, to, when, "transfer")])
+  ).filter((r): r is NonNullable<typeof r> => !!r);
+  // 같은 경로가 두 번 나오면 하나만 남깁니다
+  const seen = new Set<string>();
+  const apiOptions = api.filter((r) => {
+    const sig = r.legs.map((l) => `${l.line}:${l.start}>${l.end}`).join("|");
+    if (seen.has(sig)) return false;
+    seen.add(sig);
+    return true;
+  });
+
+  // ── ② API가 답을 못 주면 우리 엔진으로 ──────────────────────
+  //    (한도 초과·장애·이 API가 모르는 역일 때. 자료는 앱 안에 있으니 멈추지 않습니다)
+  const options = apiOptions.length ? apiOptions : findRoutes(from, to);
   if (!options.length) return fail("notFound", "경로를 찾지 못했어요");
+  const fromApi = apiOptions.length > 0;
 
   for (const o of options) {
     for (const leg of o.legs) {
       // 상행/하행. 이게 없으면 "곧 오는 열차"에 반대 방향 열차가 뜹니다.
       // (5호선 종로3가에서 동대문역사문화공원으로 가는데 "방화행"이 뜨던 문제)
-      (leg as { wayCode: number | null }).wayCode = await directionFor(leg.line, leg.start, leg.end);
+      // API 경로는 upbdnbSe 로 이미 채워져 있어 다시 구하지 않습니다.
+      if (leg.wayCode == null)
+        (leg as { wayCode: number | null }).wayCode = await directionFor(leg.line, leg.start, leg.end);
     }
     // 빠른 환승 칸 — "이 칸에 타고 있으면 다음 환승이 빠릅니다".
     // 환승역에서 내리는 위치(호차-문)를 그 앞 구간에 붙여줍니다.
@@ -53,10 +87,12 @@ export async function GET(request: Request) {
       const next = o.legs[i + 1];
       // 환승역에서 걸어가는 데 걸리는 시간 (화면의 회색 구간에 적습니다).
       // 서울교통공사 환승정보·환승역거리에서 온 실제 값이고, 없으면 3분 상수입니다.
-      (next as { transferMin?: number }).transferMin = Math.max(
-        1,
-        Math.round(transferSecOf(here.end, here.line, next.line) / 60)
-      );
+      // (API 경로는 이미 실제 값을 갖고 있어 건드리지 않습니다)
+      if ((next as { transferMin?: number }).transferMin == null)
+        (next as { transferMin?: number }).transferMin = Math.max(
+          1,
+          Math.round(transferSecOf(here.end, here.line, next.line) / 60)
+        );
       const cases = transferCases(here.end, here.line, next.line);
       if (!cases.length) continue;
       // 같은 역이라도 어느 방향에서 왔느냐에 따라 내리는 칸이 다릅니다.
@@ -76,7 +112,9 @@ export async function GET(request: Request) {
   // ⚠️ `gnrlCardFare`는 **거리 요금만**이고 별도운임 노선의 추가요금은 빠져 있습니다.
   //    (강남→판교 14.2km = 1,650원 = 거리 공식값 그대로. 신분당선 1,000원이 빠짐)
   //    그래서 그 경로가 실제로 별도운임 노선을 탈 때만 더해줍니다.
-  const fare = await lookupFare(from, to);
+  // API 경로는 요금(totalCardCrg)을 이미 갖고 있어 그대로 씁니다.
+  // ⚠️ GTX가 낀 경로는 payment 가 null 입니다 — **요금을 아예 표시하지 않습니다**(별도 운임이라 값이 없음).
+  const fare = fromApi ? null : await lookupFare(from, to);
   if (fare) {
     for (const o of options) {
       const usesExtra = o.legs.some((l) => EXTRA_FARE_LINES.has(shortLine(l.line)));
@@ -84,5 +122,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return Response.json({ from, to, options, fare });
+  return Response.json({ from, to, source: fromApi ? "api" : "engine", options, fare });
 }
