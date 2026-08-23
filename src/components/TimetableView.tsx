@@ -212,7 +212,7 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
           </div>
 
           <div className="tt-foot">
-            출처: ODsay 지하철 시간표 · {DAY_LABEL[day ?? "weekday"]} 기준
+            출처: 서울교통공사 열차시간표 · {DAY_LABEL[day ?? "weekday"]} 기준
             {data?.line ? ` · ${data.line}` : ""}
           </div>
         </>

@@ -39,7 +39,7 @@ type RouteLeg = {
   type: string; line?: string; color?: string; start?: string; end?: string;
   stationCount?: number; min?: number; way?: string; door?: string; distance?: number;
   stations?: string[];
-  stationID?: number | null; // 승차역 ODsay ID (실제 시간표 조회용)
+  stationID?: number | null; // (더 이상 쓰지 않음 — 예전 ODsay 호환 필드)
   wayCode?: number | null; // 1=상행/외선, 2=하행/내선
 };
 
@@ -268,7 +268,7 @@ export default function PoogsinApp() {
     setStage("map");
   }
 
-  // 출발·도착이 모두 정해지면 실제 경로 검색 (ODsay, 여러 후보)
+  // 출발·도착이 모두 정해지면 경로 계산 (직접 계산, 여러 후보)
   useEffect(() => {
     if (!dep || !arr) {
       setRouteOptions([]);
