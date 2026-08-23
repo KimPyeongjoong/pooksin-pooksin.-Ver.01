@@ -188,6 +188,11 @@ button{font-family:inherit}
 .tt-badge{font-style:normal;font-size:9px;font-weight:800;border-radius:999px;padding:1px 5px;color:#fff}
 .tt-badge.last{background:#C2410C}
 .tt-badge.first{background:#0E7490}
+/* 급행·특급 표시 (급행은 서는 역이 다릅니다) */
+.tt-badge.exp{background:#B45309;margin-right:auto}
+.tt-badge.exp.ltd{background:#9D174D}
+.hchip.exp{border-color:#B45309;color:#B45309}
+.hchip.exp.on{background:#B45309;border-color:#B45309;color:#fff}
 .tt-empty,.tt-loading{padding:22px 12px;text-align:center;color:var(--faint);font-size:12.5px;font-weight:600;line-height:1.6}
 .tt-foot{margin-top:14px;text-align:center;color:var(--faint);font-size:10.5px;font-weight:600}
 

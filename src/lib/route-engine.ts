@@ -10,14 +10,16 @@
 //
 //     ④ 환승 정보(transfers.json)        — 환승 소요시간 + 몇 호차 몇 번 문
 //
+//     ⑤ 급행 정보(express.json)         — 급행이 어디에 서는지 + 급행 구간 소요시간
+//
 // 못 하는 것 (정직하게):
 //   - **요금**: 지금은 거리비례 공식으로 계산합니다.
 //     서울교통공사 실시간운임정보(data.go.kr 15143846)를 붙이면 정확해집니다.
-//   - 급행/특급을 따로 계산하지 않습니다. 늘 완행 기준입니다.
 
 import linemap from "./linemap.json";
 import coordsJson from "./station-coords.json";
 import sectionJson from "./section-times.json";
+import expressJson from "./express.json";
 import transferJson from "./transfers.json";
 import extraJson from "./transfers-extra.json";
 import { lineColor, shortLine } from "./line-colors";
@@ -49,7 +51,8 @@ const EXTRA = (extraJson as { stations: Record<string, Record<string, Record<str
 // ① 서울교통공사 공식 자료 → ② ODsay로 보충한 값 → ③ 그래도 없으면 상수
 function transferSecOf(station: string, from: string, to: string): number {
   // 같은 노선의 급행 ↔ 완행은 "환승"이 아니라 승강장에서 기다리는 것입니다.
-  if (baseLine(from) === baseLine(to)) return EXPRESS_WAIT_SEC;
+  // 기다리는 시간은 **타려는 쪽**의 배차에 달렸습니다(뜸한 급행으로 갈아타면 오래 기다림).
+  if (baseLine(from) === baseLine(to)) return waitFor(to);
   const cases = transferCases(station, baseLine(from), baseLine(to));
   if (cases.length) {
     const v = cases.map((c) => c.sec).sort((a, b) => a - b);
@@ -64,6 +67,7 @@ const NAME_ALIAS: Record<string, string> = { 이수: "총신대입구", 서해�
 const bare = (s: string) =>
   (s || "")
     .replace(/\s/g, "")
+    .replace(/[·.]/g, "") // 노선도 "시청·용인대" ↔ 시간표 "시청.용인대"
     .replace(/\([^)]*\)/g, "")
     .replace(/역$/, "")
     .trim();
@@ -106,21 +110,49 @@ function sectionSec(line: string, a: string, b: string): number {
   return Math.max(60, Math.round((d / DEFAULT_SPEED_KMH) * 3600));
 }
 
-// 급행 구간 (공공 시간표에서 뽑음). "여의도|노량진" → 초
-const EXPRESS = (sectionJson as { express?: Record<string, Record<string, number>> }).express ?? {};
-
-// 급행은 완행과 **다른 노선처럼** 다룹니다.
+// ── 급행 ────────────────────────────────────────────────────
 //
-// 그래야 두 가지가 맞습니다.
+// 자료: src/lib/express.json (scripts/build-timetable.mjs 가 만듭니다)
+//   공공 시간표 원본에서 **"도착시각이 있는 역 = 서는 역"**으로 급행을 가려낸 결과입니다.
+//   한 노선에 갈래가 여럿일 수 있습니다 — 1호선만 해도 경인급행·경인특급·경부급행이 따로 다닙니다.
+//
+// 급행은 완행과 **다른 노선처럼** 다룹니다.
 //   ① 급행은 서는 역이 달라서, 안 서는 역에서 타고 내릴 수 없습니다.
 //   ② 완행에서 급행으로 갈아타려면 승강장에서 기다려야 합니다(공짜가 아님).
-// 이름 뒤에 "(급행)"을 붙여 구분합니다. 화면에 그대로 보여도 자연스럽습니다.
-const EXPRESS_SUFFIX = "(급행)";
-export const isExpress = (line: string) => line.endsWith(EXPRESS_SUFFIX);
-export const baseLine = (line: string) =>
-  isExpress(line) ? line.slice(0, -EXPRESS_SUFFIX.length) : line;
-// 같은 역에서 완행 ↔ 급행 갈아타기(=승강장에서 기다리기)에 잡는 시간
+// 이름 뒤에 "(급행)"·"(특급)"을 붙여 구분합니다. 화면에 그대로 보여도 자연스럽습니다.
+type ExpressService = {
+  id: string; // 자료 안에서 갈래를 구분하는 이름 (급행 / 급행2 / 특급 …)
+  name: string; // 화면에 보일 이름 (급행 또는 특급)
+  span: string; // 다니는 구간 ("동인천~용산")
+  trains: number;
+  wd: number; // 평일 운행 대수 (양방향 합)
+  we: number; // 주말 운행 대수
+  ways: string[];
+  stops: string[];
+  skips: string[];
+  edges: Record<string, number>; // "부천|역곡" → 초
+};
+// (JSON을 그대로 읽으면 노선마다 구간 이름이 달라 타입이 제각각이라 unknown을 거칩니다)
+const EXPRESS =
+  (expressJson as unknown as { lines: Record<string, ExpressService[]> }).lines ?? {};
+
+// 하루에 이보다 적게 다니는 갈래는 경로 계산에 넣지 않습니다.
+// (하루 두세 번 다니는 열차를 "이게 제일 빨라요"라고 하면 안 되니까요. 시간표 화면에는 그대로 나옵니다.)
+const EXPRESS_MIN_TRAINS = 10;
+
+// 가상의 급행 노선 이름 → 원래 노선 · 화면에 쓸 이름 · 기다리는 시간
+const EX_LINE = new Map<string, { base: string; label: string; wait: number }>();
+export const isExpress = (line: string) => EX_LINE.has(line);
+export const baseLine = (line: string) => EX_LINE.get(line)?.base ?? line;
+
+// 승강장에서 기다리는 시간.
+//   완행은 자주 오니 상수(3분 30초)로 두고,
+//   급행은 하루 운행 대수로 배차 간격을 어림해 그 절반(평균 기다림)을 잡습니다.
+//   예) 경인급행은 평일 한 방향 90대 → 배차 약 13분 → 기다림 6분 반
+// 이걸 안 넣으면 한두 정거장 아끼려고 뜸한 급행을 타라는 경로가 나옵니다.
 const EXPRESS_WAIT_SEC = 210;
+const OPEN_HOURS_SEC = 19 * 3600; // 첫차부터 막차까지
+const waitFor = (line: string) => EX_LINE.get(line)?.wait ?? EXPRESS_WAIT_SEC;
 
 (function buildGraph() {
   for (const l of LINES) {
@@ -158,36 +190,31 @@ const EXPRESS_WAIT_SEC = 210;
 
   // 급행 노선을 따로 얹습니다.
   //
-  // 급행이 이웃 역 사이를 달리는 구간(안 건너뛰는 구간)도 있어야 노선이 이어지므로,
-  // 급행이 서는 역들을 노선 순서대로 늘어놓고 그 사이를 전부 이어줍니다.
-  for (const [base, edges] of Object.entries(EXPRESS)) {
-    // 건너뛰는 구간이 한두 개뿐이면 급행 노선이 아니라 자료 잡음입니다.
-    // (인천2호선·용인경전철에서 1개씩 나왔는데 그 노선들엔 급행이 없습니다)
-    if (Object.keys(edges).length < 3) continue;
-    const exLine = base + EXPRESS_SUFFIX;
-    const stops = new Set<string>();
-    for (const k of Object.keys(edges)) {
-      const [a, b] = k.split("|");
-      stops.add(a);
-      stops.add(b);
-    }
-    // 급행이 서는 역 = 그 노선 순서대로
-    const order = (LINES.find((l) => shortLine(l.label) === shortLine(base))?.nodes ?? [])
-      .map((n) => (n.name ? norm(n.name) : ""))
-      .filter((s, i, arr) => s && arr.indexOf(s) === i && stops.has(s));
+  // express.json 의 `edges` 는 **급행이 실제로 달린 구간**(선 정차역 → 다음 정차역)과
+  // 그 소요시간입니다. 그대로 이어 붙이면 급행 노선이 됩니다.
+  // 급행이 건너뛰지 않는 구간(구로~용산처럼)도 그 안에 들어 있어 노선이 끊기지 않습니다.
+  for (const [base, services] of Object.entries(EXPRESS)) {
+    for (const svc of services) {
+      if (svc.trains < EXPRESS_MIN_TRAINS) continue;
+      const edges = Object.entries(svc.edges ?? {});
+      if (edges.length < 2) continue;
+      const exLine = `${base}(${svc.id})`;
+      const perDir = Math.max(1, (svc.wd || svc.trains) / Math.max(1, svc.ways.length));
+      const wait = Math.min(900, Math.max(180, Math.round(OPEN_HOURS_SEC / perDir / 2)));
+      EX_LINE.set(exLine, { base, label: `${shortLine(base)}(${svc.name})`, wait });
 
-    for (const s of order) {
-      if (!LINES_AT.has(s)) LINES_AT.set(s, new Set());
-      LINES_AT.get(s)!.add(exLine);
-    }
-    for (let i = 0; i + 1 < order.length; i++) {
-      const a = order[i];
-      const b = order[i + 1];
-      const sec = edges[`${a}|${b}`] ?? edges[`${b}|${a}`] ?? sectionSec(base, a, b);
-      if (!GRAPH.has(a)) GRAPH.set(a, []);
-      if (!GRAPH.has(b)) GRAPH.set(b, []);
-      GRAPH.get(a)!.push({ to: b, line: exLine, sec });
-      GRAPH.get(b)!.push({ to: a, line: exLine, sec });
+      for (const [k, sec] of edges) {
+        const [a, b] = k.split("|").map(norm);
+        if (!a || !b || a === b) continue;
+        for (const s of [a, b]) {
+          if (!LINES_AT.has(s)) LINES_AT.set(s, new Set());
+          LINES_AT.get(s)!.add(exLine);
+        }
+        if (!GRAPH.has(a)) GRAPH.set(a, []);
+        if (!GRAPH.has(b)) GRAPH.set(b, []);
+        GRAPH.get(a)!.push({ to: b, line: exLine, sec });
+        GRAPH.get(b)!.push({ to: a, line: exLine, sec });
+      }
     }
   }
 })();
@@ -238,8 +265,10 @@ function shortestPath(from: string, to: string, transferSec = TRANSFER_SEC): Ste
 
   for (const line of LINES_AT.get(start)!) {
     const k = keyOf({ station: start, line });
-    dist.set(k, BOARD_WAIT_SEC);
-    push(k, BOARD_WAIT_SEC);
+    // 출발역에서 바로 급행을 타는 경우에도, 급행이 완행보다 뜸한 만큼은 더 기다립니다.
+    const d = BOARD_WAIT_SEC + Math.max(0, waitFor(line) - EXPRESS_WAIT_SEC);
+    dist.set(k, d);
+    push(k, d);
   }
 
   let goalKey: string | null = null;
@@ -267,7 +296,12 @@ function shortestPath(from: string, to: string, transferSec = TRANSFER_SEC): Ste
       if (other === line) continue;
       const nk = keyOf({ station, line: other });
       // 역마다 실제 환승 시간이 다릅니다(1분~22분). 자료에 있으면 그 값을 씁니다.
-      const nd = d + (transferSec === TRANSFER_SEC ? transferSecOf(station, line, other) : transferSec);
+      const walk = transferSec === TRANSFER_SEC ? transferSecOf(station, line, other) : transferSec;
+      // 다른 노선에서 갈아타 급행을 타는 경우에도, 급행이 뜸한 만큼은 더 기다립니다.
+      // (같은 노선의 완행↔급행은 위 transferSecOf 가 이미 기다리는 시간으로 계산합니다)
+      const extraWait =
+        baseLine(line) === baseLine(other) ? 0 : Math.max(0, waitFor(other) - EXPRESS_WAIT_SEC);
+      const nd = d + walk + extraWait;
       if (nd < (dist.get(nk) ?? Infinity)) {
         dist.set(nk, nd);
         prev.set(nk, { key, station, line });
@@ -334,8 +368,8 @@ function buildRoute(from: string, to: string, transferSec: number): EngineRoute 
       const endSec = steps[j].sec;
       legs.push({
         type: "subway",
-        // shortLine이 괄호를 떼어내므로 급행 표시는 따로 붙여줍니다
-        line: isExpress(line) ? shortLine(baseLine(line)) + EXPRESS_SUFFIX : shortLine(line),
+        // shortLine이 괄호를 떼어내므로 급행 표시는 따로 붙여줍니다 ("1호선(급행)")
+        line: EX_LINE.get(line)?.label ?? shortLine(line),
         color: lineColor(line),
         start: DISPLAY.get(stations[0]) ?? stations[0],
         end: DISPLAY.get(stations[stations.length - 1]) ?? stations[stations.length - 1],

@@ -44,7 +44,8 @@ type RouteLeg = {
 };
 
 // 출발역의 실제 시간표 (/api/timetable)
-type Departure = { min: number; dest: string };
+// ex 가 있으면 급행입니다 ("급행" 또는 "특급").
+type Departure = { min: number; dest: string; ex?: string };
 // 서버는 평일/토/휴일 × 상하행을 한 번에 주고, 여기서 필요한 방향만 골라 씁니다.
 type TimetableRes = {
   line?: string;
@@ -1471,6 +1472,8 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
   const end = leg.end || "";
   const stationID = leg.stationID ?? null;
   const wayCode = leg.wayCode ?? null;
+  // 경로 결과의 노선 이름이 "1호선(급행)"이면 이 구간은 급행을 타는 구간입니다.
+  const expressKind = /\((급행|특급)\)$/.exec(line)?.[1] ?? "";
 
   // ① 시간표
   useEffect(() => {
@@ -1487,14 +1490,17 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
         if (!alive) return;
         const day = d.today ?? "weekday";
         const way = wayCode === 2 ? "down" : "up";
-        setDeps(d.lists?.[day]?.[way] ?? []);
+        const list = d.lists?.[day]?.[way] ?? [];
+        // 급행 구간이면 급행 열차만 보여줍니다.
+        // (완행 시각까지 같이 보이면 그 시각에 급행이 오는 줄 오해합니다)
+        setDeps(expressKind ? list.filter((t) => t.ex === expressKind) : list);
       })
       .catch(() => alive && setDeps([]))
       .finally(() => alive && setTtLoading(false));
     return () => {
       alive = false;
     };
-  }, [stationID, start, line, wayCode]);
+  }, [stationID, start, line, wayCode, expressKind]);
 
   // ② 실시간 열차 위치 — 20초마다 갱신
   useEffect(() => {
@@ -1556,10 +1562,15 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
         <span className="lb-row" key={i}>
           <b>{hhmm(d.min)}</b>
           <em>{d.min - nowMin >= 0 ? `${d.min - nowMin}분` : "지난 열차"}</em>
+          {d.ex && <em className="tt-badge exp">{d.ex}</em>}
           <span className="lb-dest">{d.dest ? `${d.dest}행` : ""}</span>
         </span>
       ))}
-      {!next3.length && <span className="lb-row lb-none">오늘 남은 열차가 없어요</span>}
+      {!next3.length && (
+        <span className="lb-row lb-none">
+          {expressKind ? `오늘 남은 ${expressKind}이 없어요` : "오늘 남은 열차가 없어요"}
+        </span>
+      )}
       <span className="lb-live">
         {liveOff
           ? "실시간 위치는 이 노선에서 제공되지 않아요"

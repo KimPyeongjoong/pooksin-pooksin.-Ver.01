@@ -18,6 +18,7 @@ import { findRoutes, knownStation, transferCases } from "@/lib/route-engine";
 import { directionFor } from "@/lib/timetable";
 import { lineStations } from "@/lib/lines";
 import { lookupFare } from "@/lib/fare";
+import { shortLine } from "@/lib/line-colors";
 
 // 기본운임 외에 별도 요금을 더 받는 노선들 (운임 API의 addCrgExpln 설명 기준)
 const EXTRA_FARE_LINES = new Set(["신분당선", "의정부경전철", "용인경전철", "우이신설선", "김포골드라인"]);
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
   const fare = await lookupFare(from, to);
   if (fare) {
     for (const o of options) {
-      const usesExtra = o.legs.some((l) => EXTRA_FARE_LINES.has(l.line));
+      const usesExtra = o.legs.some((l) => EXTRA_FARE_LINES.has(shortLine(l.line)));
       o.payment = fare.card + (usesExtra ? fare.addFare : 0);
     }
   }

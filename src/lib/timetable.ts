@@ -1,26 +1,32 @@
 // 앱에 내장된 시간표 읽기
 //
-// 시간표는 1년에 두어 번 바뀌는 고정 데이터입니다. 예전에는 화면을 열 때마다
-// ODsay에 물어봤는데, ODsay는 하루 호출 한도(무료 1,000건)가 있어 금방 바닥납니다.
-// 이제 scripts/build-timetable.mjs 로 받아둔 파일을 읽어 씁니다 — 외부 호출 0건.
+// 시간표는 1년에 두어 번 바뀌는 고정 데이터입니다.
+// scripts/build-timetable.mjs 로 미리 받아둔 파일을 읽어 씁니다 — 외부 호출 0건.
 //
 // 원본: 공공데이터포털 "서울교통공사_열차시간표" (15143847)
-// 못 덮는 노선: 경의중앙 · 인천1 · 우이신설 → 이 노선만 ODsay로 넘깁니다.
+// 커버: 수도권 24개 노선 전부 (654역).
+//
+// 급행도 여기에 들어 있습니다. 출발시각 옆의 `ex`("급행"·"특급")가 그 표시입니다.
+// 원본에서 급행을 가려내는 방법은 scripts/build-timetable.mjs 맨 위 설명을 보세요.
 
 import { shortLine } from "./line-colors";
 import type { DayType } from "./holidays";
 import { lineStations } from "./lines";
 
-export type Departure = { min: number; dest: string };
+// ex 가 있으면 급행입니다 ("급행" 또는 "특급" — 승강장 안내와 같은 말).
+export type Departure = { min: number; dest: string; ex?: string };
 export type Dirs = { up: Departure[]; down: Departure[] };
 
-// 파일 안에서 시간표는 [자정기준 분, 행선지번호] 쌍으로 압축돼 있습니다.
-type Pair = [number, number];
+// 파일 안에서 시간표는 [자정기준 분, 행선지번호] 로 압축돼 있고,
+// 급행이면 뒤에 갈래 번호가 하나 더 붙습니다 → [분, 행선지번호, 급행갈래번호(1부터)].
+type Entry = [number, number] | [number, number, number];
 type LineTable = {
   line: string;
   built: string;
+  validFrom?: string; // 이 시간표가 적용되기 시작한 날
   dests: string[];
-  stations: Record<string, { up?: Record<string, Pair[]>; down?: Record<string, Pair[]> }>;
+  express?: string[]; // 급행 갈래 이름 (항목의 세 번째 숫자가 여기를 가리킵니다)
+  stations: Record<string, { up?: Record<string, Entry[]>; down?: Record<string, Entry[]> }>;
 };
 
 // 번들러가 미리 알 수 있도록 노선마다 불러오는 함수를 적어둡니다.
@@ -86,10 +92,12 @@ async function table(line: string): Promise<LineTable | null> {
 // 그래도 안 맞는 두 곳은 따로 적어둡니다.
 //   이수(7호선 시간표) = 총신대입구(4호선·노선도)  — 한 역을 노선마다 다르게 부릅니다
 //   서해구청(노선도)   = 서구청(공식·시간표)        — 노선도 표기가 다릅니다
+//   노선도 "시청·용인대"   ↔  시간표 "시청.용인대"  (가운뎃점 표기가 다름)
 const NAME_ALIAS: Record<string, string> = { 이수: "총신대입구", 서해구청: "서구청" };
 const bare = (s: string) =>
   (s || "")
     .replace(/\s/g, "")
+    .replace(/[·.]/g, "")
     .replace(/\([^)]*\)/g, "")
     .replace(/역$/, "")
     .trim();
@@ -139,7 +147,8 @@ export async function directionFor(
 
 export type StationTimetable = {
   line: string;
-  built: string;
+  built: string; // 자료를 받아둔 날
+  validFrom: string; // 이 시간표가 적용되기 시작한 날 (원본이 알려줍니다)
   upWay: string; // 상행 방면 대표 행선지
   downWay: string;
   lists: Record<DayType, Dirs>;
@@ -159,7 +168,10 @@ export async function stationTimetable(
   const entry = t.stations[key];
 
   const pick = (way: "up" | "down", day: DayType): Departure[] =>
-    (entry[way]?.[DAY_KEY[day]] ?? []).map(([min, d]) => ({ min, dest: t.dests[d] ?? "" }));
+    (entry[way]?.[DAY_KEY[day]] ?? []).map(([min, d, ex]) => {
+      const name = ex ? t.express?.[ex - 1] : "";
+      return name ? { min, dest: t.dests[d] ?? "", ex: name } : { min, dest: t.dests[d] ?? "" };
+    });
 
   const lists = {
     weekday: { up: pick("up", "weekday"), down: pick("down", "weekday") },
@@ -191,5 +203,5 @@ export async function stationTimetable(
     downWay = `${downWay}(${circular ? "내선" : "하행"})`;
   }
 
-  return { line: t.line, built: t.built, upWay, downWay, lists };
+  return { line: t.line, built: t.built, validFrom: t.validFrom ?? "", upWay, downWay, lists };
 }

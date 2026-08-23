@@ -51,6 +51,7 @@ export async function GET(request: Request) {
         dateKey: kstDateKey(),
         holidayDataStale: !holidayDataCovers(),
         built: t.built, // 시간표를 받아둔 날짜
+        validFrom: t.validFrom, // 이 시간표가 적용되기 시작한 날 (원본이 알려줍니다)
         lists: t.lists,
         siblings,
       });

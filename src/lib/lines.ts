@@ -17,7 +17,12 @@ export type Neighbors = {
 };
 
 // 노선 이름 표기 차이를 흡수합니다 ("경의·중앙선" = "경의중앙선", "서해" = "서해선")
-const norm = (s: string) => (s || "").replace(/[·\s]/g, "").replace(/선$/, "");
+// 경로 결과는 급행이면 "1호선(급행)"처럼 옵니다 — 역 순서는 같으므로 괄호는 떼어냅니다.
+const norm = (s: string) =>
+  (s || "")
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .replace(/[·\s]/g, "")
+    .replace(/선$/, "");
 
 // 노선 위 역들을 순서대로 (실시간 열차 위치 화면에서 일직선으로 그릴 때 씁니다)
 export function lineStations(lineName: string): string[] {

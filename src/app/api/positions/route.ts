@@ -34,7 +34,8 @@ export type TrainPos = {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const raw = searchParams.get("line") ?? "";
+  // 경로 결과의 급행 구간은 "1호선(급행)"으로 옵니다 — 실시간 위치는 노선 단위라 괄호를 뗍니다.
+  const raw = (searchParams.get("line") ?? "").replace(/\s*\([^)]*\)\s*$/, "");
   const line = LINE_ALIASES[raw] ?? raw;
   if (!line) return Response.json({ error: "line 필요", trains: [] }, { status: 400 });
 

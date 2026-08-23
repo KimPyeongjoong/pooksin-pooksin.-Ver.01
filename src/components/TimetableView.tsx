@@ -9,7 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DAY_LABEL, type DayType } from "@/lib/holidays";
 
-type Departure = { min: number; dest: string };
+// ex 가 있으면 급행입니다 ("급행" 또는 "특급")
+type Departure = { min: number; dest: string; ex?: string };
 type Dirs = { up: Departure[]; down: Departure[] };
 
 type TimetableRes = {
@@ -21,6 +22,7 @@ type TimetableRes = {
   today?: DayType;
   isHoliday?: boolean;
   holidayDataStale?: boolean;
+  validFrom?: string; // 이 시간표가 적용되기 시작한 날
   lists?: Record<DayType, Dirs>;
   siblings?: { stationID: number; line: string }[];
   error?: string;
@@ -46,6 +48,7 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
   const [curLine, setCurLine] = useState<string | null>(line ?? null);
   const [day, setDay] = useState<DayType | null>(null);
   const [hour, setHour] = useState<number | null>(null);
+  const [exOnly, setExOnly] = useState(false); // 급행만 보기
   const hourBarRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -96,8 +99,16 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
   const lastOf = (list: Departure[]) => (list.length ? list[list.length - 1].min : null);
   const firstOf = (list: Departure[]) => (list.length ? list[0].min : null);
 
+  // 이 역에 급행이 서는 노선인지 (아니면 "급행만" 단추를 아예 안 보여줍니다)
+  const hasExpress = useMemo(
+    () => (dirs ? [...dirs.up, ...dirs.down].some((d) => d.ex) : false),
+    [dirs]
+  );
+
   function column(list: Departure[], wayLabel: string) {
-    const rows = hour == null ? list : list.filter((d) => Math.floor(d.min / 60) === hour);
+    const rows = list.filter(
+      (d) => (hour == null || Math.floor(d.min / 60) === hour) && (!exOnly || d.ex)
+    );
     const last = lastOf(list);
     const first = firstOf(list);
     // 오늘 기준 "다음 열차" 강조는 오늘 요일 탭을 보고 있을 때만
@@ -109,7 +120,9 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
           <b>{wayLabel || "—"} 방면</b>
         </div>
         {rows.length === 0 ? (
-          <div className="tt-empty">이 시간대에는 열차가 없어요</div>
+          <div className="tt-empty">
+            {exOnly ? "이 시간대에는 급행이 없어요" : "이 시간대에는 열차가 없어요"}
+          </div>
         ) : (
           rows.map((d, i) => (
             // 같은 시각·같은 행선지가 두 번 나올 수 있어 순번을 키에 함께 씁니다
@@ -122,6 +135,10 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
                 {d.min === last && <em className="tt-badge last">막</em>}
                 {d.min === first && <em className="tt-badge first">첫</em>}
               </span>
+              {/* 급행은 서는 역이 다릅니다 — 한눈에 보이도록 표시합니다 */}
+              {d.ex && (
+                <em className={`tt-badge exp${d.ex === "특급" ? " ltd" : ""}`}>{d.ex}</em>
+              )}
               {d.dest && <span className="tt-dest">{d.dest}행</span>}
             </div>
           ))
@@ -192,6 +209,15 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
                 {h % 24}시
               </button>
             ))}
+            {/* 급행이 서는 역에서만 나옵니다 */}
+            {hasExpress && (
+              <button
+                className={`hchip exp${exOnly ? " on" : ""}`}
+                onClick={() => setExOnly((v) => !v)}
+              >
+                급행만
+              </button>
+            )}
           </div>
 
           {/* 도착정보에서 누른 방향을 왼쪽(먼저 보이는 자리)에 둡니다 */}
@@ -214,6 +240,7 @@ export default function TimetableView({ station, line, initialWay, nowMin, onClo
           <div className="tt-foot">
             출처: 서울교통공사 열차시간표 · {DAY_LABEL[day ?? "weekday"]} 기준
             {data?.line ? ` · ${data.line}` : ""}
+            {data?.validFrom ? ` · ${data.validFrom} 개정` : ""}
           </div>
         </>
       )}
