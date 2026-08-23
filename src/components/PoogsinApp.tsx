@@ -46,10 +46,42 @@ type RouteLeg = {
 
 // 구간마다 몇 시에 타는지 계산합니다.
 //
-// 총 소요시간은 구간 시간의 단순 합보다 큽니다. 그 차이(slack)가 곧 환승역에서
-// 걸어가고 기다리는 시간이라, 환승 지점에 나눠 넣어야 구간별 시각을 더한 값이 총 소요시간과 맞습니다.
+// **환승 시각은 그 역의 실제 시간표에서 찾습니다.**
+//   앞 구간 도착 시각 + 환승 도보 시간 → 그 시각 이후 첫 열차.
+// 그래야 "20:38에 7호선을 탄다"가 실제 있는 열차가 됩니다.
+//
+// 시간표를 못 받은 구간(자료 없는 노선 등)만 예전 방식으로 어림합니다 —
+// 총 소요시간과 구간 시간 합의 차이(slack)를 환승 지점에 나눠 넣는 방식.
+//
 // 요약 시트와 상세 화면이 **같은 값**을 보여주도록 한곳에 둡니다.
-function legTiming(route: RouteData, departAt: number) {
+export type LegTables = Map<string, { departures: Departure[] }>;
+// 시간표를 찾는 열쇠: 역 + 노선 + 방향
+export const legKey = (l: RouteLeg) => `${l.start ?? ""}|${l.line ?? ""}|${l.wayCode ?? 1}`;
+
+// 역 이름 표기 차이 흡수 (앱의 다른 곳과 같은 규칙)
+const bareName = (s: string) =>
+  (s || "").replace(/\s/g, "").replace(/[·.]/g, "").replace(/\([^)]*\)/g, "").replace(/역$/, "").trim();
+
+// "이 열차가 내릴 역까지 가는가"
+//
+// 중간에서 끝나는 열차가 많습니다 — 1호선 서동탄행·광명셔틀, 7호선 온수행처럼요.
+// 그런 열차를 환승 열차로 골라버리면 "타도 못 가는 시각"이 됩니다.
+// 행선지가 이 노선 목록에 없으면(다른 지선 등) 판단을 보류하고 그대로 둡니다 — 함부로 버리지 않습니다.
+function reachesEnd(line: string, from: string, to: string) {
+  if (/2호선/.test(line)) return () => true; // 순환선은 앞뒤를 번호로 못 가립니다
+  const order = lineStations(line).map(bareName);
+  const si = order.indexOf(bareName(from));
+  const ei = order.indexOf(bareName(to));
+  if (si < 0 || ei < 0 || si === ei) return () => true;
+  const dir = Math.sign(ei - si);
+  return (dest: string) => {
+    const di = order.indexOf(bareName(dest));
+    if (di < 0) return true;
+    return Math.sign(di - si) === dir && Math.abs(di - si) >= Math.abs(ei - si);
+  };
+}
+
+function legTiming(route: RouteData, departAt: number, tables?: LegTables) {
   const rideCount = route.legs.filter((l) => l.type === "subway").length;
   const legSum = route.legs.reduce((s, l) => s + (l.min || 0), 0);
   const transfers = Math.max(0, rideCount - 1);
@@ -61,14 +93,25 @@ function legTiming(route: RouteData, departAt: number) {
   let seenRides = 0;
   const timed = route.legs.map((l, i) => {
     if (l.type === "subway") {
-      if (seenRides > 0) acc += waitEach + (seenRides === 1 ? waitRest : 0);
+      if (seenRides > 0) {
+        // 환승: 앞 구간에서 내린 시각 + 걸어가는 시간
+        const ready = acc + (l.transferMin ?? 0);
+        const list = tables?.get(legKey(l))?.departures;
+        // 급행 구간이면 급행 열차만, 완행 구간이면 완행만 봅니다
+        // (완행 구간에 급행을 잡으면 내릴 역을 지나칠 수 있습니다)
+        const kind = /\((급행|특급)\)$/.exec(l.line ?? "")?.[1] ?? "";
+        const next = list?.find((d) => d.min >= ready && (kind ? d.ex === kind : !d.ex));
+        // 시간표가 있으면 그 시각에 타고, 없으면 예전 방식(slack 나누기)으로 어림합니다
+        acc = next ? next.min : acc + waitEach + (seenRides === 1 ? waitRest : 0);
+      }
       seenRides++;
     }
     const start = acc;
     acc += l.min || 0;
     return { l, i, start };
   });
-  const arriveAt = Math.max(acc, departAt + (route.totalTime || 0));
+  // 시간표로 맞춘 경우 실제 도착이 엔진 추정보다 늦을 수 있습니다(다음 열차를 기다리므로).
+  const arriveAt = tables?.size ? acc : Math.max(acc, departAt + (route.totalTime || 0));
   // 지하철 구간만 뽑되, 원래 순서(i)를 기억해 바로 뒤의 도보 구간을 찾을 수 있게 합니다.
   return { timed, rides: timed.filter((x) => x.l.type === "subway"), arriveAt };
 }
@@ -375,7 +418,9 @@ export default function PoogsinApp() {
       .then((d: TimetableRes) => {
         const day = d.today ?? "weekday";
         const way = boardWayCode === 2 ? "down" : "up";
-        const departures = d.lists?.[day]?.[way] ?? [];
+        // 내릴 역까지 가는 열차만 (중간에 끝나는 열차를 고르면 타도 못 갑니다)
+        const ok = reachesEnd(boardLeg?.line ?? "", boardLeg?.start ?? "", boardLeg?.end ?? "");
+        const departures = (d.lists?.[day]?.[way] ?? []).filter((t) => ok(t.dest));
         setTimetable(
           departures.length
             ? {
@@ -389,7 +434,49 @@ export default function PoogsinApp() {
       })
       .catch(() => setTimetable(null))
       .finally(() => setTtLoading(false));
-  }, [boardStationID, boardWayCode, boardLeg?.start, boardLeg?.line]);
+  }, [boardStationID, boardWayCode, boardLeg?.start, boardLeg?.line, boardLeg?.end]);
+
+  // 환승역 시간표 — 환승 시각을 **실제 열차**에 맞추려고 구간마다 미리 받아둡니다.
+  // 앞 구간 도착 + 환승 도보 시간 뒤에 오는 첫 열차를 찾는 데 씁니다.
+  // (한 경로에 보통 1~3개고, 내장 자료라 외부 API 호출은 없습니다)
+  const [legTables, setLegTables] = useState<LegTables>(new Map());
+  const rideKeys = route
+    ? route.legs.filter((l) => l.type === "subway").map(legKey).join(";")
+    : "";
+  useEffect(() => {
+    if (!route) {
+      setLegTables(new Map());
+      return;
+    }
+    const legs = route.legs.filter((l) => l.type === "subway");
+    let alive = true;
+    Promise.all(
+      legs.map(async (l) => {
+        const q = new URLSearchParams();
+        if (l.start) q.set("station", l.start);
+        if (l.line) q.set("line", l.line);
+        try {
+          const d: TimetableRes = await (await fetch(`/api/timetable?${q}`)).json();
+          const day = d.today ?? "weekday";
+          const way = l.wayCode === 2 ? "down" : "up";
+          // 이 구간에서 내릴 역까지 가는 열차만 남깁니다 (중간에 끝나는 열차 제외)
+          const ok = reachesEnd(l.line ?? "", l.start ?? "", l.end ?? "");
+          const departures = (d.lists?.[day]?.[way] ?? []).filter((t) => ok(t.dest));
+          return departures.length ? ([legKey(l), { departures }] as const) : null;
+        } catch {
+          return null;
+        }
+      })
+    ).then((rows) => {
+      if (!alive) return;
+      setLegTables(new Map(rows.filter((r) => r !== null)));
+    });
+    return () => {
+      alive = false;
+    };
+    // route 자체가 아니라 "구간 목록"이 바뀔 때만 다시 받습니다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rideKeys]);
 
   // 지금 출발해서 탈 수 있는 첫 열차 (도보 이동 시간 감안)
   const firstBoardIdx = (() => {
@@ -414,6 +501,8 @@ export default function PoogsinApp() {
   const boardAt = picked ? picked.min : (departMin ?? nowMin) + preBoardMin;
   // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
   const journeyStart = boardAt - preBoardMin;
+  // 구간별 시각 (환승은 그 역 실제 시간표에서 찾은 열차 기준) — 요약·상세가 같이 씁니다
+  const timing = route ? legTiming(route, journeyStart, legTables) : null;
 
   // 이 구간 열차가 몇 량인지 (노선별로 다르고, 지선·셔틀은 더 짧습니다)
   const carInfo = carsForLeg(carLeg?.line ?? "", [
@@ -730,6 +819,7 @@ export default function PoogsinApp() {
             <RouteDetail
               route={route}
               departAt={journeyStart}
+              tables={legTables}
               boardAt={boardAt}
               nowMin={nowMin}
               onBoard={(leg) => {
@@ -961,16 +1051,18 @@ export default function PoogsinApp() {
             ) : route && route.legs.some((l) => l.type === "subway") ? (
               <div className="sheet" onClick={() => setStage("detail")} style={{ cursor: "pointer" }}>
                 <div className="grab" />
+                {/* 소요시간·도착시각은 아래 막대와 같은 계산(실제 환승 열차 시간표)을 씁니다.
+                    환승 대기가 길면 그만큼 늘어납니다 — 실제로 그렇게 걸리니까요. */}
                 <div className="rs-head">
-                  <span className="dur">{route.totalTime}분</span>
+                  <span className="dur">{(timing?.arriveAt ?? journeyStart) - journeyStart}분</span>
                   <span className="sub">
-                    {fmtAmPm(journeyStart)} – {fmtAmPm(journeyStart + (route.totalTime || 0))} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
+                    {fmtAmPm(journeyStart)} – {fmtAmPm(timing?.arriveAt ?? journeyStart)} · 환승 {route.transferCount}회 · {route.payment?.toLocaleString()}원
                   </span>
                 </div>
                 {/* 한눈에 보는 막대: 위에 승차 시각, 안에 노선·소요시간, 회색 칸에 환승 도보,
                     아래에 역 이름(출발·환승·도착). 세 줄이 같은 flex 값을 써서 세로로 맞습니다. */}
                 {(() => {
-                  const { rides, arriveAt } = legTiming(route, journeyStart);
+                  const rides = timing?.rides ?? [];
                   // 막대 한 칸씩: 열차 구간과 그 사이 회색 환승 칸
                   const cells = rides.flatMap(({ l, start }, i) => {
                     const out: {
@@ -1618,12 +1710,14 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
 function RouteDetail({
   route,
   departAt,
+  tables,
   boardAt,
   nowMin,
   onBoard,
 }: {
   route: RouteData | null;
   departAt: number; // 여정 시작(도보 포함) 시각
+  tables: LegTables; // 구간별 시간표 (환승 시각을 실제 열차에 맞추는 데 씁니다)
   boardAt: number; // 첫 열차 발차 시각
   nowMin: number; // 지금 시각 (30초마다 갱신)
   onBoard: (leg: RouteLeg) => void; // 그 노선의 탑승 칸 선택으로 이동
@@ -1636,13 +1730,14 @@ function RouteDetail({
     );
   }
   // 구간별 시각은 요약 시트와 같은 계산을 씁니다 (legTiming 참고)
-  const { timed, rides, arriveAt } = legTiming(route, departAt);
+  const { timed, rides, arriveAt } = legTiming(route, departAt, tables);
 
   return (
     <div className="scroll" style={{ background: "var(--surface)" }}>
       <div className="pad">
         <div className="dj-head">
-          <div className="dur">{route.totalTime}분</div>
+          {/* 아래 시각들과 같은 계산 — 환승 열차를 실제 시간표에서 찾으므로 대기가 길면 그만큼 늘어납니다 */}
+          <div className="dur">{arriveAt - departAt}분</div>
           <div className="sub">
             {fmtAmPm(departAt)} – {fmtAmPm(arriveAt)} · {route.payment?.toLocaleString()}원
           </div>
@@ -1732,7 +1827,18 @@ function RouteDetail({
                             {walk.min || 0}분
                           </span>
                         ) : null}
-                        {waitMin > 0 && <span className="vj-meta">환승 대기 {waitMin}분</span>}
+                        {/* 걸어가는 시간과 승강장에서 기다리는 시간을 나눠서 보여줍니다 */}
+                        {waitMin > 0 &&
+                          (() => {
+                            const walkMin = nextRide?.l.transferMin ?? 0;
+                            const idle = Math.max(0, waitMin - walkMin);
+                            return (
+                              <span className="vj-meta">
+                                {walkMin > 0 ? `환승 도보 ${walkMin}분` : "환승"}
+                                {idle > 0 ? ` · 대기 ${idle}분` : ""}
+                              </span>
+                            );
+                          })()}
                       </>
                     )}
                   </span>

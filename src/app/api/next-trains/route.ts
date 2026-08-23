@@ -79,14 +79,24 @@ export async function GET(request: Request) {
   const pos = await fetchPositions(rawLine);
   const updatedAt = pos.updatedAt;
 
-  if (pos.supported) {
-    // 진행 방향으로 역을 늘어놓습니다 (내릴 역이 뒤에 오도록)
-    const all = lineStations(line).map(norm);
-    const si = all.indexOf(norm(station));
-    const ei = to ? all.indexOf(norm(to)) : -1;
-    const ordered = si >= 0 && ei >= 0 && ei < si ? [...all].reverse() : all;
-    const boardIdx = ordered.indexOf(norm(station));
+  // 진행 방향으로 역을 늘어놓습니다 (내릴 역이 뒤에 오도록)
+  const all = lineStations(line).map(norm);
+  const si = all.indexOf(norm(station));
+  const ei = to ? all.indexOf(norm(to)) : -1;
+  const ordered = si >= 0 && ei >= 0 && ei < si ? [...all].reverse() : all;
+  const boardIdx = ordered.indexOf(norm(station));
+  const toIdx = to ? ordered.indexOf(norm(to)) : -1;
 
+  // "이 열차가 내릴 역까지 가는가" — 중간에서 끝나는 열차(1호선 서동탄행, 7호선 온수행 등)를 거릅니다.
+  // 행선지가 이 노선 목록에 없으면 판단을 보류합니다(함부로 버리지 않습니다).
+  // 순환선(2호선)은 번호로 앞뒤를 못 가려 검사하지 않습니다.
+  const reaches = (dest: string) => {
+    if (circular || toIdx < 0 || !dest) return true;
+    const di = ordered.indexOf(norm(dest));
+    return di < 0 ? true : di >= toIdx;
+  };
+
+  if (pos.supported) {
     if (boardIdx >= 0) {
       // 도착정보에 남은 시간이 있으면 그걸 더 믿습니다 (열차번호로 맞춰봅니다)
       const hints = new Map<string, number>();
@@ -109,6 +119,7 @@ export async function GET(request: Request) {
           const di = ordered.indexOf(norm(t.dest));
           if (di >= 0 && di <= boardIdx) continue;
         }
+        if (!reaches(t.dest)) continue; // 내릴 역까지 안 가는 열차
         // 지금 있는 역 → 우리 역까지 구간 시간을 더합니다
         let sec = 0;
         for (let i = ti; i < boardIdx; i++) sec += hopSec(line, ordered[i], ordered[i + 1]);
@@ -141,6 +152,7 @@ export async function GET(request: Request) {
         if (d.min < afterMin) continue;
         // 실시간과 같은 기준으로 고릅니다 (급행 구간이면 급행만, 완행 구간이면 완행만)
         if (expressKind ? d.ex !== expressKind : !!d.ex) continue;
+        if (!reaches(d.dest)) continue; // 내릴 역까지 안 가는 열차
         out.push({ source: "timetable", etaSec: null, min: d.min, dest: d.dest, express: !!d.ex });
         if (out.length >= want) break;
       }
