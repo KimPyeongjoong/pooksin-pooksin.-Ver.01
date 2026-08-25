@@ -549,6 +549,13 @@ export default function PoogsinApp() {
     firstRideStart != null && Number.isFinite(firstRideStart)
       ? firstRideStart - preBoardMin
       : journeyStart;
+  // 화면에 찍혀 있는 승차 시각. 위쪽 [이전/시각/다음] 선택기도 이 값을 기준으로 움직입니다.
+  const shownBoard =
+    firstRideStart != null && Number.isFinite(firstRideStart) ? firstRideStart : boardAt;
+  // 그 열차가 이 역 시간표에서 몇 번째인지 (선택기의 끝 판정에 씁니다)
+  const shownIdx = timetable
+    ? timetable.departures.findIndex((d) => d.min === shownBoard)
+    : -1;
 
   // 이 구간 열차가 몇 량인지 (노선별로 다르고, 지선·셔틀은 더 짧습니다)
   const carInfo = carsForLeg(carLeg?.line ?? "", [
@@ -610,8 +617,15 @@ export default function PoogsinApp() {
     setPickedCar((c) => Math.min(c, carInfo.cars));
   }, [carInfo.cars]);
 
-  function stepTrain(delta: number) {
-    if (!timetable) {
+  // ‹ 이전 / 다음 › — **지금 화면에 보이는 열차**를 기준으로 한 대씩 옮깁니다.
+  //
+  // ⚠️ 예전에는 화면과 따로 노는 번호(depIdx)를 움직였습니다.
+  //    경로가 바뀌면 그 번호가 초기화돼서, 이전을 눌렀는데 다음으로 가거나
+  //    아무 일도 안 일어나는 것처럼 보였습니다.
+  //    지금은 화면에 찍힌 승차 시각(shownBoard)이 시간표에서 몇 번째인지 매번 다시 찾습니다.
+  async function stepTrain(delta: number) {
+    const list = timetable?.departures ?? [];
+    if (!list.length) {
       // 시간표를 못 받은 경우에만 예전처럼 3분 단위로 움직입니다.
       setDepartMin((m) => {
         const base = m ?? nowMin;
@@ -620,16 +634,46 @@ export default function PoogsinApp() {
       return;
     }
     setPickedByUser(true);
-    setDepIdx((i) => {
-      const cur = i ?? firstBoardIdx;
-      // 이미 떠난 열차도 볼 수 있습니다(놓친 열차 확인용).
-      const next = Math.min(timetable.departures.length - 1, Math.max(0, cur + delta));
-      // 고른 열차 시각으로 경로를 다시 물어봅니다
-      // (그 열차 기준으로 환승 시각·도착 시각이 다시 맞춰집니다)
-      const pick = timetable.departures[next];
-      if (pick) setAtMin(pick.min);
-      return next;
-    });
+
+    // 다음 › — 지금 열차보다 뒤에 출발하는 여정을 물어봅니다.
+    if (delta > 0) {
+      setAtMin(shownBoard + 1);
+      return;
+    }
+
+    // ‹ 이전 — 여기가 까다롭습니다.
+    //
+    // ⚠️ 경로검색 API는 **도착이 같으면 늦게 출발하는 쪽**을 답합니다.
+    //    (11:00 열차를 타나 11:17 열차를 타나 환승이 같으면 11:17로 알려줍니다 — 맞는 답입니다)
+    //    그래서 "한 대 앞 시각"으로 물어보면 같은 여정이 또 나와서 화면이 안 움직입니다.
+    //    실제로 더 이른 열차가 나올 때까지 시간표를 거슬러 올라갑니다(최대 4대).
+    let idx = list.findIndex((d) => d.min === shownBoard);
+    if (idx < 0) {
+      idx = 0;
+      for (let i = 0; i < list.length; i++) if (list[i].min < shownBoard) idx = i + 1;
+    }
+    for (let k = 1; k <= 4 && idx - k >= 0; k++) {
+      const t = list[idx - k].min;
+      try {
+        const q = new URLSearchParams({ from: dep ?? "", to: arr ?? "", at: String(t) });
+        const r = await (await fetch(`/api/route?${q}`)).json();
+        const board = r.options?.[0]?.legs?.[0]?.boardMin;
+        // 앞당겨졌거나(또는 시각을 안 주는 자체 계산이면) 그 시각으로 확정
+        if (board == null || board < shownBoard) {
+          setDepIdx(idx - k);
+          setAtMin(t);
+          return;
+        }
+      } catch {
+        setDepIdx(idx - k);
+        setAtMin(t);
+        return;
+      }
+    }
+    if (idx > 0) {
+      setDepIdx(idx - 1);
+      setAtMin(list[idx - 1].min);
+    }
   }
 
   const regCount = Object.values(seats).filter((s) => s.kind === "occupied").length;
@@ -790,7 +834,7 @@ export default function PoogsinApp() {
                   <div className="timesel" style={{ marginTop: 8, border: "1px solid var(--line-2)", borderRadius: 12 }}>
                     <button
                       onClick={() => stepTrain(-1)}
-                      disabled={timetable ? (depIdx ?? 0) <= 0 : false}
+                      disabled={timetable ? shownIdx === 0 : false}
                     >
                       ‹ 이전
                     </button>
@@ -800,8 +844,8 @@ export default function PoogsinApp() {
                       ) : (
                         <>
                           <span>
-                            {boardAt >= 1440 ? "내일 " : ""}
-                            {fmtAmPm(boardAt)}
+                            {shownBoard >= 1440 ? "내일 " : ""}
+                            {fmtAmPm(shownBoard)}
                           </span>
                           {!picked && !ttLoading && (
                             <small
@@ -815,7 +859,7 @@ export default function PoogsinApp() {
                     </button>
                     <button
                       onClick={() => stepTrain(1)}
-                      disabled={timetable ? (depIdx ?? 0) >= timetable.departures.length - 1 : false}
+                      disabled={timetable ? shownIdx === timetable.departures.length - 1 : false}
                     >
                       다음 ›
                     </button>
@@ -871,7 +915,7 @@ export default function PoogsinApp() {
               route={route}
               departAt={journeyStartEff}
               tables={legTables}
-              boardAt={boardAt}
+              boardAt={shownBoard}
               nowMin={nowMin}
               onBoard={(leg) => {
                 setCarLeg(leg);
