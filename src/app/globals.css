@@ -371,7 +371,8 @@ button{font-family:inherit}
 .dirflow{display:flex;align-items:center;justify-content:center;gap:8px;font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.05em;margin-bottom:16px}
 .dirflow .arrowline{flex:1;height:1px;background:var(--line-2);position:relative;max-width:70px}
 .dirflow .arrowline::after{content:"";position:absolute;right:0;top:-3px;border-left:6px solid var(--line-2);border-top:3.5px solid transparent;border-bottom:3.5px solid transparent}
-.train{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:6px 0}
+/* (예전 가로형 칸 선택에 쓰던 .train / .car 규칙은 지웠습니다 —
+   지금은 아래 세로형 열차 그래픽을 쓰는데, 이름이 겹쳐 gap 이 끼어들고 있었습니다) */
 .car{width:42px;height:58px;border:1.5px solid var(--line-2);border-radius:9px;background:var(--surface-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--muted);cursor:pointer}
 .car small{font-size:8px;font-weight:600;color:var(--faint)}
 .car.sel{border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(36,94,156,.3)}
@@ -409,15 +410,51 @@ button{font-family:inherit}
 /* ---- 세로형 열차 칸 (진행 방향은 언제나 위) ---- */
 .cars-dir{display:flex;align-items:center;justify-content:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--muted);margin:4px 0 8px}
 .cars-arrow{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid var(--line-2)}
-.cars{display:flex;flex-direction:column;gap:5px;max-width:250px;margin:0 auto}
-.carrow{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line-2);border-radius:10px;background:var(--surface-2);padding:10px 13px;font-family:inherit;cursor:pointer;text-align:left}
-.carrow:first-child{border-top-left-radius:16px;border-top-right-radius:16px}
-.carrow:last-child{border-bottom-left-radius:16px;border-bottom-right-radius:16px}
+/* ---- 열차 모양 칸 선택 ----
+   위에서부터 [앞머리(운전실)] - [1번 칸] - [연결기] - [2번 칸] … - [꼬리]
+   --line 은 그 노선 색 (JSX에서 인라인으로 넣어줍니다) */
+.train{max-width:250px;margin:0 auto;display:flex;flex-direction:column}
+/* 앞머리·꼬리는 칸보다 살짝 좁게 해서 코가 둥근 느낌을 냅니다 */
+.train-head,.train-tail{position:relative;width:92%;margin:0 auto;height:32px;
+  background:var(--line,var(--accent));border:1.5px solid rgba(0,0,0,.12)}
+.train-head{border-radius:26px 26px 4px 4px}
+.train-tail{border-radius:4px 4px 26px 26px}
+/* 전면 유리 */
+.train-head::after,.train-tail::after{content:"";position:absolute;left:20%;right:20%;height:12px;
+  background:rgba(255,255,255,.75)}
+.train-head::after{top:7px;border-radius:8px 8px 4px 4px}
+.train-tail::after{bottom:7px;border-radius:4px 4px 8px 8px}
+/* 전조등 두 개 (꼬리는 붉은 미등) */
+.train-head::before,.train-tail::before{content:"";position:absolute;left:13px;right:13px;height:5px;
+  background:
+    radial-gradient(circle 2.5px at 5px 50%, rgba(255,255,255,.92) 0 100%, transparent 0),
+    radial-gradient(circle 2.5px at calc(100% - 5px) 50%, rgba(255,255,255,.92) 0 100%, transparent 0)}
+.train-head::before{bottom:5px}
+.train-tail::before{top:5px;
+  background:
+    radial-gradient(circle 2.5px at 5px 50%, rgba(255,120,110,.95) 0 100%, transparent 0),
+    radial-gradient(circle 2.5px at calc(100% - 5px) 50%, rgba(255,120,110,.95) 0 100%, transparent 0)}
+.cars{display:flex;flex-direction:column;margin:0 auto;width:100%}
+/* 칸과 칸을 잇는 연결기 */
+.car-link{display:block;width:26px;height:6px;margin:0 auto;background:var(--line-2)}
+.carrow{position:relative;display:flex;align-items:center;gap:9px;border:1.5px solid var(--line-2);
+  border-radius:7px;background:var(--surface-2);padding:13px 16px;font-family:inherit;cursor:pointer;
+  text-align:left;width:100%;overflow:hidden}
+/* 창문 띠 (글자 위쪽에 옅게) */
+.car-win{position:absolute;left:14px;right:14px;top:6px;height:9px;border-radius:5px;
+  background:var(--inset);opacity:.9}
+/* 양옆 출입문 */
+.car-door{position:absolute;top:50%;transform:translateY(-50%);width:4px;height:20px;border-radius:2px;
+  background:var(--line-2)}
+.car-door.l{left:3px}
+.car-door.r{right:3px}
 .carrow-n{flex:none;min-width:56px;font-size:13.5px;font-weight:750;color:var(--muted)}
 .carrow-tags{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
 .ct{font-style:normal;font-size:9px;font-weight:800;border-radius:5px;padding:2px 5px;color:#fff}
 .ct.cool{background:#0E7490} .ct.fast{background:#B45309}
-.carrow.sel{border-color:var(--accent);background:var(--accent-weak)}
+.carrow.sel{border-color:var(--line,var(--accent));background:var(--accent-weak);
+  box-shadow:inset 0 0 0 1px var(--line,var(--accent))}
+.carrow.sel .car-door{background:var(--line,var(--accent))}
 .carrow.sel .carrow-n{color:var(--accent-ink);font-weight:850}
 .cars-note{text-align:center;margin-top:10px;font-size:11px;color:var(--faint);font-weight:650}
 

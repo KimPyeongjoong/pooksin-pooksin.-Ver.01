@@ -1394,19 +1394,30 @@ export default function PoogsinApp() {
               <span className="cars-arrow" />
               {carLeg?.way ? `${withYeok(carLeg.way)} 방면` : "진행 방향"}
             </div>
-            <div className="cars">
-              {carOrder.map((n) => (
-                <button
-                  className={`carrow${n === pickedCar ? " sel" : ""}`}
-                  key={n}
-                  onClick={() => setPickedCar(n)}
-                >
-                  <span className="carrow-n">{n}번 칸</span>
-                  <span className="carrow-tags">
-                    {n === quickCar && <em className="ct fast">빠른환승</em>}
-                  </span>
-                </button>
-              ))}
+            {/* 열차 모양으로 그립니다 — 맨 위가 앞머리(운전실), 맨 아래가 꼬리.
+                칸마다 창문과 양옆 출입문을 그려 실제 전동차처럼 보이게 했습니다. */}
+            <div className="train" style={{ ["--line" as string]: carLeg?.color || "var(--accent)" }}>
+              <span className="train-head" />
+              <div className="cars">
+                {carOrder.map((n, i) => (
+                  <div className="car-slot" key={n}>
+                    {i > 0 && <span className="car-link" />}
+                    <button
+                      className={`carrow${n === pickedCar ? " sel" : ""}`}
+                      onClick={() => setPickedCar(n)}
+                    >
+                      <span className="car-door l" />
+                      <span className="car-win" />
+                      <span className="carrow-n">{n}번 칸</span>
+                      <span className="carrow-tags">
+                        {n === quickCar && <em className="ct fast">빠른환승</em>}
+                      </span>
+                      <span className="car-door r" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <span className="train-tail" />
             </div>
             <div className="cars-note">
               1번 칸이 맨 앞(진행 방향) · {carLeg?.line} {carInfo.cars}량
