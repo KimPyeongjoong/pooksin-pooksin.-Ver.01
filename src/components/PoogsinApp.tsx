@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import SchematicMap from "./SchematicMap";
 import TimetableView from "./TimetableView";
 import TimeDial from "./TimeDial";
@@ -218,6 +218,11 @@ export default function PoogsinApp() {
   // 어느 구간에 대한 시각인지 함께 담아둡니다 — 출발·도착이 바뀌면 저절로 "지금"으로 돌아갑니다.
   const [atPick, setAtPick] = useState<{ pair: string; min: number } | null>(null);
   const [dialOpen, setDialOpen] = useState(false); // 출발 시각 다이얼 시트
+  // 이전/다음/막차는 서버에 여러 번 물어봐야 해서 몇 초 걸립니다.
+  // 그동안 아무 표시가 없으면 "버튼이 안 먹는다"고 느껴지므로 상태를 둡니다.
+  const [seeking, setSeeking] = useState(false);
+  // 어떤 구간(출발|도착)의 결과를 갖고 있는지 — 시각만 바뀔 땐 앞 결과를 지우지 않으려고 둡니다
+  const lastPairRef = useRef("");
   const atPair = `${dep ?? ""}|${arr ?? ""}`;
   const atMin = atPick && atPick.pair === atPair ? atPick.min : null;
   const setAtMin = (min: number) => setAtPick({ pair: atPair, min });
@@ -379,9 +384,16 @@ export default function PoogsinApp() {
       setDepartMin(null);
       return;
     }
-    // (출발·도착이 바뀌면 기준 시각은 아래 effect에서 "지금"으로 되돌립니다)
     setRouteLoading(true);
-    setRouteOptions([]);
+    // ⚠️ 시각만 바꿔 다시 찾는 경우에는 **앞의 결과를 지우지 않습니다.**
+    //    지우면 그 잠깐 동안 화면에 "지금 시각"이 대신 찍혀서,
+    //    이전/다음을 누르면 엉뚱한 시각으로 튀었다가 돌아오는 것처럼 보입니다.
+    //    (출발·도착이 바뀔 때만 비웁니다)
+    const pair = `${dep}|${arr}`;
+    if (lastPairRef.current !== pair) {
+      setRouteOptions([]);
+      lastPairRef.current = pair;
+    }
     setRouteErr(null);
     setRouteErrKind(null);
     // ⚠️ 출발 기준 시각을 함께 보냅니다.
@@ -538,8 +550,9 @@ export default function PoogsinApp() {
   }, [timetable, pickedByUser, firstBoardIdx]);
 
   // 실제 발차 시각 (시간표가 없으면 기존 방식으로 대체)
-  const picked = timetable && depIdx != null ? timetable.departures[depIdx] : null;
-  const boardAt = picked ? picked.min : (departMin ?? nowMin) + preBoardMin;
+  // 고른 번호로 찾은 열차 — 경로를 물어볼 기준 시각을 만드는 데 씁니다
+  const pickedBase = timetable && depIdx != null ? timetable.departures[depIdx] : null;
+  const boardAt = pickedBase ? pickedBase.min : (departMin ?? nowMin) + preBoardMin;
   // RouteDetail은 "여정 시작 시각"부터 구간을 누적하므로 도보 시간만큼 앞당겨 넘깁니다.
   const journeyStart = boardAt - preBoardMin;
   // 구간별 시각 (환승은 그 역 실제 시간표에서 찾은 열차 기준) — 요약·상세가 같이 씁니다
@@ -558,6 +571,11 @@ export default function PoogsinApp() {
   const shownIdx = timetable
     ? timetable.departures.findIndex((d) => d.min + (shownBoard >= 1440 ? 1440 : 0) === shownBoard)
     : -1;
+  // 화면에 찍힌 시각이 시간표의 어느 열차인지 (없으면 null → "예상 시각"으로 표시)
+  //
+  // ⚠️ 예전에는 내부 번호(depIdx)로 찾았습니다. 이전/다음을 누르면 경로가 다시 오면서
+  //    화면 시각은 바뀌는데 그 번호는 그대로라, 멀쩡한 시각에도 "시간표 없음"이 떴습니다.
+  const picked = timetable && shownIdx >= 0 ? timetable.departures[shownIdx] : null;
 
   // 이 구간 열차가 몇 량인지 (노선별로 다르고, 지선·셔틀은 더 짧습니다)
   const carInfo = carsForLeg(carLeg?.line ?? "", [
@@ -643,6 +661,7 @@ export default function PoogsinApp() {
       return;
     }
 
+    setSeeking(true); // 아래에서 서버에 몇 번 물어보므로 그동안 화면에 알려줍니다
     // ‹ 이전 — 여기가 까다롭습니다.
     //
     // ⚠️ 경로검색 API는 **도착이 같으면 늦게 출발하는 쪽**을 답합니다.
@@ -666,11 +685,13 @@ export default function PoogsinApp() {
         if (board == null || board < shownBoard) {
           setDepIdx(idx - k);
           setAtMin(t);
+          setSeeking(false);
           return;
         }
       } catch {
         setDepIdx(idx - k);
         setAtMin(t);
+        setSeeking(false);
         return;
       }
     }
@@ -678,6 +699,7 @@ export default function PoogsinApp() {
       setDepIdx(idx - 1);
       setAtMin(list[idx - 1].min + dayBase);
     }
+    setSeeking(false);
   }
 
   const regCount = Object.values(seats).filter((s) => s.kind === "occupied").length;
@@ -838,7 +860,7 @@ export default function PoogsinApp() {
                   <div className="timesel" style={{ marginTop: 8, border: "1px solid var(--line-2)", borderRadius: 12 }}>
                     <button
                       onClick={() => stepTrain(-1)}
-                      disabled={timetable ? shownIdx === 0 : false}
+                      disabled={seeking || (timetable ? shownIdx === 0 : false)}
                     >
                       ‹ 이전
                     </button>
@@ -848,7 +870,9 @@ export default function PoogsinApp() {
                       // 경로검색 화면에서만 다이얼을 엽니다 (상세 화면에서는 시각 표시만)
                       onClick={() => stage !== "detail" && setDialOpen(true)}
                     >
-                      {ttLoading ? (
+                      {seeking || (routeLoading && route) ? (
+                        "열차 찾는 중…"
+                      ) : ttLoading ? (
                         "시간표 확인 중…"
                       ) : (
                         <>
@@ -869,7 +893,7 @@ export default function PoogsinApp() {
                     </button>
                     <button
                       onClick={() => stepTrain(1)}
-                      disabled={timetable ? shownIdx === timetable.departures.length - 1 : false}
+                      disabled={seeking || (timetable ? shownIdx === timetable.departures.length - 1 : false)}
                     >
                       다음 ›
                     </button>
@@ -888,6 +912,7 @@ export default function PoogsinApp() {
                         // 서버가 "경로가 있는 가장 늦은 시각"을 찾아 알려줍니다.
                         setRouteTab("last");
                         if (!dep || !arr) return;
+                        setSeeking(true); // 서버가 여러 번 물어보므로 몇 초 걸립니다
                         try {
                           const q = new URLSearchParams({ from: dep, to: arr });
                           const r = await (await fetch(`/api/last-train?${q}`)).json();
@@ -899,6 +924,8 @@ export default function PoogsinApp() {
                           setAtMin(r.min);
                         } catch {
                           showToast("막차를 확인하지 못했어요");
+                        } finally {
+                          setSeeking(false);
                         }
                       }}
                     >
