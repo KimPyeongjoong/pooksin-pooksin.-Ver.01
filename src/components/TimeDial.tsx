@@ -34,6 +34,8 @@ function Wheel({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const settle = useRef<number | null>(null);
+  // 마우스로 끌어서 굴리기 (손가락은 원래대로 굴러가므로 건드리지 않습니다)
+  const drag = useRef<{ y: number; top: number } | null>(null);
   // 사용자가 굴리는 중인지. 굴리는 동안에는 코드가 스크롤을 건드리지 않습니다
   // (건드리면 손가락으로 굴리던 게 튕겨 나갑니다)
   const rolling = useRef(false);
@@ -47,11 +49,41 @@ function Wheel({
     el.scrollTo({ top });
   }, [value]);
 
+  // 끌기가 끝나면 가장 가까운 칸에 부드럽게 붙입니다
+  const endDrag = () => {
+    const el = ref.current;
+    if (!el || !drag.current) return;
+    drag.current = null;
+    el.style.scrollSnapType = ""; // 원래대로(스냅 켜기)
+    const i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / ITEM_H)));
+    el.scrollTo({ top: i * ITEM_H, behavior: "smooth" });
+    if (i !== value) onChange(i);
+  };
+
   return (
     <div
       className={`dial-col${dim ? " dim" : ""}`}
       style={width ? { width } : undefined}
       ref={ref}
+      onPointerDown={(e) => {
+        // 손가락은 브라우저가 알아서 굴려주므로 그대로 둡니다
+        if (e.pointerType === "touch") return;
+        const el = ref.current;
+        if (!el) return;
+        drag.current = { y: e.clientY, top: el.scrollTop };
+        el.setPointerCapture(e.pointerId);
+        // 끄는 동안에는 스냅을 꺼야 손을 따라옵니다 (켜져 있으면 계속 되돌아갑니다)
+        el.style.scrollSnapType = "none";
+      }}
+      onPointerMove={(e) => {
+        const el = ref.current;
+        const d = drag.current;
+        if (!el || !d) return;
+        el.scrollTop = d.top - (e.clientY - d.y); // 끈 만큼 반대로 굴러갑니다
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
       onScroll={() => {
         const el = ref.current;
         if (!el) return;

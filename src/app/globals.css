@@ -642,7 +642,10 @@ button{font-family:inherit}
 .dial-band{position:absolute;left:6px;right:6px;top:50%;height:38px;transform:translateY(-50%);
   background:var(--inset);border-radius:10px;pointer-events:none;z-index:0}
 .dial-col{position:relative;z-index:1;height:190px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;text-align:center;
-  -webkit-overflow-scrolling:touch}
+  -webkit-overflow-scrolling:touch;
+  /* 마우스로 끌어서 굴릴 수 있습니다. 끌 때 글자가 블록으로 잡히지 않게 막습니다 */
+  cursor:grab;user-select:none;-webkit-user-select:none}
+.dial-col:active{cursor:grabbing}
 .dial-col::-webkit-scrollbar{display:none}
 .dial-col.dim{opacity:.35;pointer-events:none}
 .dial-item{height:38px;line-height:38px;scroll-snap-align:center;font-size:16px;font-weight:600;color:var(--faint)}
