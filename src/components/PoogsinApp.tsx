@@ -1918,32 +1918,45 @@ function RouteFlow({
   if (!rides.length) return null;
   // "지금부터 몇 분 뒤에 떠나는 열차인지" — 지나간 열차를 고르면 음수가 됩니다.
   const diff = boardAt - nowMin;
+  // 열차 구간 사이에 **환승 회색 칸**을 끼워 넣습니다 (요약 시트의 막대와 같은 모양).
+  // 세 줄(시각·막대·역 이름)이 같은 flex 값을 써야 세로로 맞습니다.
+  const cells = rides.flatMap(({ l, start }, k) => {
+    const out: { kind: "ride" | "walk"; flex: number; l: RouteLeg; start: number }[] = [
+      { kind: "ride", flex: Math.max(1, l.min || 1), l, start },
+    ];
+    const next = rides[k + 1];
+    if (next) out.push({ kind: "walk", flex: 0.9, l: next.l, start: next.start });
+    return out;
+  });
   return (
     <div className="rf">
       <div className="rf-times">
-        {rides.map(({ start }, k) => (
-          <span key={k} style={{ flex: Math.max(1, rides[k].l.min || 1) }}>
-            {hhmm(start)}
+        {cells.map((c, k) => (
+          <span key={k} style={{ flex: c.flex }}>
+            {c.kind === "ride" ? hhmm(c.start) : ""}
           </span>
         ))}
         <span className="rf-end">{hhmm(arriveAt)}</span>
       </div>
       <div className="rf-bar">
-        {rides.map(({ l }, k) => (
-          <span
-            className="rf-seg"
-            key={k}
-            style={{ flex: Math.max(1, l.min || 1), background: l.color }}
-          >
-            <em>{l.line}</em>
-            <b>{l.min}분</b>
-          </span>
-        ))}
+        {cells.map((c, k) =>
+          c.kind === "ride" ? (
+            <span className="rf-seg" key={k} style={{ flex: c.flex, background: c.l.color }}>
+              <em>{c.l.line}</em>
+              <b>{c.l.min}분</b>
+            </span>
+          ) : (
+            // 환승 구간 — 걸어가는 시간을 적습니다 (공공 환승 자료에서 온 실제 값)
+            <span className="rf-seg walk" key={k} style={{ flex: c.flex }}>
+              <b>{c.l.transferMin ?? 3}분</b>
+            </span>
+          )
+        )}
       </div>
       <div className="rf-names">
-        {rides.map(({ l }, k) => (
-          <span key={k} style={{ flex: Math.max(1, l.min || 1), color: l.color }}>
-            {l.start}
+        {cells.map((c, k) => (
+          <span key={k} style={{ flex: c.flex, color: c.kind === "ride" ? c.l.color : undefined }}>
+            {c.kind === "ride" ? c.l.start : ""}
           </span>
         ))}
         <span className="rf-end">{rides[rides.length - 1].l.end}</span>
