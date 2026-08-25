@@ -15,11 +15,13 @@ export default function RefreshDial({
   every = 20,
   onRefresh,
   floating = false,
+  paused = false,
   title = "새로고침",
 }: {
   every?: number; // 자동 새로고침 주기(초)
   onRefresh: () => void;
   floating?: boolean;
+  paused?: boolean; // 자동 새로고침을 멈춤 (예: 오늘 조회 한도를 다 썼을 때)
   title?: string;
 }) {
   const [left, setLeft] = useState(every);
@@ -30,6 +32,8 @@ export default function RefreshDial({
   }, [onRefresh]);
 
   useEffect(() => {
+    // 멈춤 상태에선 세지 않습니다 (불러봐야 같은 오류라 헛돌기만 합니다)
+    if (paused) return;
     const id = window.setInterval(() => {
       setLeft((v) => {
         if (v <= 1) {
@@ -40,19 +44,20 @@ export default function RefreshDial({
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [every]);
+  }, [every, paused]);
 
   return (
     <button
       className={`rfd${floating ? " float" : ""}`}
       title={title}
-      aria-label={`${title} (자동 ${left}초 뒤)`}
+      aria-label={paused ? title : `${title} (자동 ${left}초 뒤)`}
       onClick={() => {
         cb.current();
         setLeft(every);
       }}
     >
-      {/* 회전 화살표 — 한 바퀴에서 조금 모자라게 그리고 끝에 화살촉을 답니다 */}
+      {/* 회전 화살표 — 위(12시)에서 시계방향으로 한 바퀴 조금 못 미치게 돌고,
+          호가 "끝나는" 왼쪽 위 지점에 진행 방향(오른쪽 위)으로 화살촉을 답니다 */}
       <svg className="rfd-ic" viewBox="0 0 40 40" aria-hidden="true">
         <path
           d="M20 5.5 a14.5 14.5 0 1 1 -10.3 4.3"
@@ -61,9 +66,9 @@ export default function RefreshDial({
           strokeWidth="2.6"
           strokeLinecap="round"
         />
-        <polygon points="20,0.5 20,10.5 27,5.5" fill="currentColor" />
+        <polygon points="13.2,6.3 11.1,14.0 5.5,8.4" fill="currentColor" />
       </svg>
-      <b className="rfd-num">{left}</b>
+      {!paused && <b className="rfd-num">{left}</b>}
     </button>
   );
 }

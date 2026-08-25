@@ -34,7 +34,7 @@ type Tab = "home" | "wallet";
 // 실시간 도착정보(서버 경로에서 받아오는 모양)
 type ArrivalTrain = { msg: string; sec: number; min?: number; dest?: string };
 type ArrivalGroup = { line: string; dir: string; updn?: "up" | "down"; trains: ArrivalTrain[] };
-type Arrivals = { source: string; updatedAt: string; groups: ArrivalGroup[] };
+type Arrivals = { source: string; reason?: string; updatedAt: string; groups: ArrivalGroup[] };
 
 // 경로검색 결과
 type RouteLeg = {
@@ -1160,7 +1160,9 @@ export default function PoogsinApp() {
                 {!arrLoading && arrivals && arrivals.groups.length === 0 && (
                   <>
                     <div style={{ padding: "2px 2px 10px", color: "var(--warn)", fontSize: 11.5, lineHeight: 1.5, fontWeight: 600 }}>
-                      샘플 키가 혼잡해 예시로 표시 중 · 내 API 키를 넣으면 실시간으로 바뀝니다
+                      {arrivals.reason
+                        ? `${arrivals.reason} · 아래는 예시입니다`
+                        : "샘플 키가 혼잡해 예시로 표시 중 · 내 API 키를 넣으면 실시간으로 바뀝니다"}
                     </div>
                     <div className="arrcards" style={{ maxHeight: 240, overflowY: "auto" }}>
                       {(MOCK_ARRIVALS.filter((g) => shortLine(g.line) === shortLine(sheetLine ?? "")).length

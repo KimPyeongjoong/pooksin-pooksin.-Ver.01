@@ -43,7 +43,24 @@ export type Positions = {
   updatedAt: string;
   trains: TrainPos[];
   reason?: string;
+  quota?: boolean; // 오늘 호출 한도를 다 썼을 때
 };
+
+// ⚠️ 서울시 API는 잘못돼도 **HTTP 200**으로 응답합니다. 본문의 code 를 봐야 합니다.
+//    ERROR-337 = 일일 1,000건 초과 · ERROR-336/300 = 키 문제 · INFO-200 = 데이터 없음
+//    이걸 안 보면 한도를 다 쓴 걸 "이 노선은 제공 안 됨"으로 잘못 안내하게 됩니다(실제로 그랬습니다).
+function apiError(data: unknown): { quota: boolean; msg: string } | null {
+  const d = data as { status?: number; code?: string; message?: string } | null;
+  const code = String(d?.code ?? "");
+  if (!code.startsWith("ERROR")) return null;
+  return {
+    quota: code === "ERROR-337",
+    msg:
+      code === "ERROR-337"
+        ? "오늘 실시간 조회 한도(1,000건)를 다 썼어요 · 내일 다시 됩니다"
+        : `실시간 자료를 받지 못했어요 (${code})`,
+  };
+}
 
 // 경로 결과의 급행 구간은 "1호선(급행)"으로 옵니다 — 실시간은 노선 단위라 괄호를 뗍니다.
 export const liveLineName = (raw: string) => {
@@ -59,6 +76,8 @@ export async function fetchPositions(rawLine: string): Promise<Positions> {
     const url = `${SEOUL}/${key}/json/realtimePosition/0/200/${encodeURIComponent(line)}`;
     const res = await fetch(url, { next: { revalidate: 15 } });
     const data = await res.json();
+    const err = apiError(data);
+    if (err) return { line, supported: false, updatedAt: "", trains: [], reason: err.msg, quota: err.quota };
     const list: Record<string, string>[] = data?.realtimePositionList ?? [];
     if (!list.length)
       return {
@@ -112,6 +131,7 @@ export async function fetchArrivalHints(station: string): Promise<ArrivalHint[]>
     const url = `${SEOUL}/${key}/json/realtimeStationArrival/0/20/${encodeURIComponent(station)}`;
     const res = await fetch(url, { next: { revalidate: 15 } });
     const data = await res.json();
+    if (apiError(data)) return []; // 한도 초과·키 오류 → 힌트 없이 열차 위치로만 계산
     const list: Record<string, string>[] = data?.realtimeArrivalList ?? [];
     return list
       .map((t) => ({

@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     line: pos.line,
     supported: pos.supported,
     reason: pos.reason,
+    quota: pos.quota ?? false,
     updatedAt: pos.updatedAt,
     count: pos.trains.length,
     trains: pos.trains,

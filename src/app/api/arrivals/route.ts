@@ -42,6 +42,22 @@ export async function GET(request: Request) {
     // (도착정보 시트를 여러 명이 동시에 봐도 서울시 API 호출량은 그대로입니다)
     const res = await fetch(url, { next: { revalidate: 15 } });
     const data = await res.json();
+    // ⚠️ 서울시 API는 잘못돼도 HTTP 200 으로 옵니다. 본문 code 를 봐야 합니다.
+    //    ERROR-337 = 일일 1,000건 초과. 이걸 "정보 없음"으로 보여주면 안 됩니다.
+    const code = String(data?.code ?? "");
+    if (code.startsWith("ERROR")) {
+      return Response.json({
+        station,
+        source: code === "ERROR-337" ? "quota" : "error",
+        reason:
+          code === "ERROR-337"
+            ? "오늘 실시간 조회 한도(1,000건)를 다 썼어요 · 내일 다시 됩니다"
+            : `실시간 자료를 받지 못했어요 (${code})`,
+        updatedAt: "",
+        count: 0,
+        groups: [],
+      });
+    }
     const list: any[] = data?.realtimeArrivalList ?? [];
 
     // 노선 + 방향(상/하행)으로 묶고, 각 그룹당 가까운 열차 2대까지

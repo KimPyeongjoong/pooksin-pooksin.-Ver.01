@@ -24,7 +24,7 @@ export type TrainPos = {
   last: boolean;
 };
 
-type Res = { supported?: boolean; reason?: string; updatedAt?: string; trains?: TrainPos[] };
+type Res = { supported?: boolean; reason?: string; quota?: boolean; updatedAt?: string; trains?: TrainPos[] };
 
 type Props = {
   line: string;
@@ -53,13 +53,18 @@ export default function TrainStrip({
   const [res, setRes] = useState<Res | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // 오늘 실시간 조회 한도를 다 썼는지 (다 썼으면 자동 갱신을 멈춥니다)
+  const quotaRef = useRef(false);
   const pickedOnce = useRef(false);
 
   const load = useCallback(() => {
     setLoading(true);
     fetch(`/api/positions?line=${encodeURIComponent(line)}`)
       .then((r) => r.json())
-      .then((d: Res) => setRes(d))
+      .then((d: Res) => {
+        quotaRef.current = !!d.quota;
+        setRes(d);
+      })
       .catch(() => setRes({ supported: false, reason: "네트워크 오류", trains: [] }))
       .finally(() => setLoading(false));
   }, [line]);
@@ -67,8 +72,8 @@ export default function TrainStrip({
   useEffect(() => {
     pickedOnce.current = false;
     load();
-    const id = window.setInterval(load, 20_000);
-    return () => window.clearInterval(id);
+    // 20초마다 다시 받는 일은 아래 새로고침 버튼(RefreshDial)이 맡습니다.
+    // 여기에도 타이머를 두면 같은 주기로 두 번씩 불러 호출량이 두 배가 됩니다.
   }, [load]);
 
   // 진행 방향이 왼쪽 → 오른쪽이 되도록 역 순서를 맞춥니다.
@@ -224,7 +229,7 @@ export default function TrainStrip({
             {loading ? "불러오는 중…" : fallbackLabel || "선택 안 됨"}
           </span>
         )}
-        <RefreshDial every={20} onRefresh={load} />
+        <RefreshDial every={20} paused={!!res?.quota} onRefresh={load} />
       </div>
 
       {(unsupported || empty || stations.length === 0) && (
@@ -232,7 +237,7 @@ export default function TrainStrip({
           {stations.length === 0
             ? "이 노선의 역 순서 정보가 없어요"
             : unsupported
-              ? "이 노선은 실시간 열차 위치가 공개되지 않아요"
+              ? res?.reason || "이 노선은 실시간 열차 위치가 공개되지 않아요"
               : otherWayCount > 0
                 ? `이 방향으로 가는 열차가 지금 없어요 (반대 방향 ${otherWayCount}대 운행 중)`
                 : "지금 운행 중인 열차가 없어요 (막차 이후)"}
