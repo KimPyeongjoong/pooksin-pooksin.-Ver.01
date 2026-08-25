@@ -1407,7 +1407,6 @@ export default function PoogsinApp() {
                       onClick={() => setPickedCar(n)}
                     >
                       <span className="car-door l" />
-                      <span className="car-win" />
                       <span className="carrow-n">{n}번 칸</span>
                       <span className="carrow-tags">
                         {n === quickCar && <em className="ct fast">빠른환승</em>}
