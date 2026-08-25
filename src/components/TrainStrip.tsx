@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lineStations } from "@/lib/lines";
 import { lineColor } from "@/lib/line-colors";
+import RefreshDial from "./RefreshDial";
 
 export type TrainPos = {
   trainNo: string;
@@ -219,11 +220,11 @@ export default function TrainStrip({
             {selected.last && <em className="lt-tag last">막차</em>}
           </span>
         ) : (
-          <span className="ts-sel dim">{fallbackLabel || "선택 안 됨"}</span>
+          <span className="ts-sel dim">
+            {loading ? "불러오는 중…" : fallbackLabel || "선택 안 됨"}
+          </span>
         )}
-        <button className="ts-refresh" onClick={load} aria-label="새로고침">
-          ↻
-        </button>
+        <RefreshDial every={20} onRefresh={load} />
       </div>
 
       {(unsupported || empty || stations.length === 0) && (
@@ -236,6 +237,13 @@ export default function TrainStrip({
                 ? `이 방향으로 가는 열차가 지금 없어요 (반대 방향 ${otherWayCount}대 운행 중)`
                 : "지금 운행 중인 열차가 없어요 (막차 이후)"}
           {fallbackLabel ? ` · 시간표 기준 ${fallbackLabel}` : ""}
+        </div>
+      )}
+
+      {stations.length > 0 && (
+        <div className="ts-dirs">
+          <span>← 지나온 역</span>
+          <span>진행 방향 →</span>
         </div>
       )}
 
@@ -278,11 +286,6 @@ export default function TrainStrip({
         </div>
       )}
 
-      <div className="ts-foot">
-        <span>← 지나온 역</span>
-        <span>{res?.updatedAt ? `${res.updatedAt} 기준 · 20초마다 갱신` : loading ? "불러오는 중…" : ""}</span>
-        <span>진행 방향 →</span>
-      </div>
     </div>
   );
 }

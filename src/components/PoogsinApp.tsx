@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import SchematicMap from "./SchematicMap";
 import TimetableView from "./TimetableView";
 import TimeDial from "./TimeDial";
+import RefreshDial from "./RefreshDial";
 import LiveTrainView from "./LiveTrainView";
 import TrainStrip, { type TrainPos } from "./TrainStrip";
 import {
@@ -221,6 +222,8 @@ export default function PoogsinApp() {
   // 이전/다음/막차는 서버에 여러 번 물어봐야 해서 몇 초 걸립니다.
   // 그동안 아무 표시가 없으면 "버튼이 안 먹는다"고 느껴지므로 상태를 둡니다.
   const [seeking, setSeeking] = useState(false);
+  // 새로고침 신호 — 이 숫자가 바뀌면 "곧 오는 열차"들이 다시 불러옵니다
+  const [boardTick, setBoardTick] = useState(0);
   // 어떤 구간(출발|도착)의 결과를 갖고 있는지 — 시각만 바뀔 땐 앞 결과를 지우지 않으려고 둡니다
   const lastPairRef = useRef("");
   const atPair = `${dep ?? ""}|${arr ?? ""}`;
@@ -643,6 +646,32 @@ export default function PoogsinApp() {
   //    경로가 바뀌면 그 번호가 초기화돼서, 이전을 눌렀는데 다음으로 가거나
   //    아무 일도 안 일어나는 것처럼 보였습니다.
   //    지금은 화면에 찍힌 승차 시각(shownBoard)이 시간표에서 몇 번째인지 매번 다시 찾습니다.
+  // 좌석 화면 새로고침 — 좌석 상황과 **열차의 지금 위치**를 다시 불러옵니다.
+  // 위치가 바뀌면 좌석 배지의 "몇 역 뒤"도 따라 바뀝니다.
+  // (좌석 자체는 아직 목업입니다. Supabase를 붙이면 여기서 실제 좌석을 받아옵니다)
+  async function refreshSeats() {
+    setSeats(
+      makeMockSeats(
+        allSeats(seatLayout).map((x) => x.id),
+        `${carLeg?.line ?? ""}-${pickedCar}`,
+        legStations
+      )
+    );
+    if (!pickedTrain?.trainNo || !carLeg?.line) return;
+    try {
+      const d = await (
+        await fetch(`/api/positions?line=${encodeURIComponent(carLeg.line)}`)
+      ).json();
+      const t = (d.trains ?? []).find((x: TrainPos) => x.trainNo === pickedTrain.trainNo);
+      if (t?.station) {
+        setPickedTrain(t);
+        setCarLeg((prev) => (prev && prev.start !== t.station ? { ...prev, start: t.station } : prev));
+      }
+    } catch {
+      /* 위치를 못 받으면 좌석만 다시 그립니다 */
+    }
+  }
+
   // 최단시간 / 최소환승 / 최저요금 탭을 누르면 **지금 시각 기준으로 다시 찾습니다.**
   // (막차를 본 뒤에 다른 탭을 눌렀는데 막차 시각 그대로면 아무 반응이 없는 것처럼 보입니다)
   function selectTab(t: RouteTab) {
@@ -972,6 +1001,7 @@ export default function PoogsinApp() {
               tables={legTables}
               boardAt={shownBoard}
               nowMin={nowMin}
+              tick={boardTick}
               onBoard={(leg) => {
                 setCarLeg(leg);
                 setRideMode(false);
@@ -979,6 +1009,11 @@ export default function PoogsinApp() {
                 setView("car");
               }}
             />
+          )}
+
+          {/* 상세경로: 오른쪽 아래 새로고침 — 실시간 "곧 오는 열차"를 다시 불러옵니다 */}
+          {stage === "detail" && (
+            <RefreshDial every={20} floating onRefresh={() => setBoardTick((n) => n + 1)} />
           )}
 
           {/* 지도 위 FAB (깨끗한 홈에서만) */}
@@ -1526,6 +1561,9 @@ export default function PoogsinApp() {
             </button>
           </div>
 
+          {/* 좌석 화면: 오른쪽 아래 새로고침 (좌석 상황 + 열차 위치) */}
+          <RefreshDial every={20} floating onRefresh={refreshSeats} />
+
           {/* 하차역 입력 모달 */}
           {alightFor && (
             <div className="modal-scrim" onClick={() => { setAlightFor(null); setPickedSeat(null); }}>
@@ -1821,7 +1859,7 @@ type NextTrain = {
   last?: boolean;
 };
 
-function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
+function LegBoard({ leg, nowMin, tick = 0 }: { leg: RouteLeg; nowMin: number; tick?: number }) {
   const [trains, setTrains] = useState<NextTrain[] | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -1855,7 +1893,7 @@ function LegBoard({ leg, nowMin }: { leg: RouteLeg; nowMin: number }) {
       alive = false;
       window.clearInterval(id);
     };
-  }, [start, end, line, wayCode]);
+  }, [start, end, line, wayCode, tick]);
 
   if (loading) return <span className="lb-wait">곧 오는 열차 확인 중…</span>;
   if (!trains?.length)
@@ -1899,6 +1937,7 @@ function RouteDetail({
   tables,
   boardAt,
   nowMin,
+  tick,
   onBoard,
 }: {
   route: RouteData | null;
@@ -1906,6 +1945,7 @@ function RouteDetail({
   tables: LegTables; // 구간별 시간표 (환승 시각을 실제 열차에 맞추는 데 씁니다)
   boardAt: number; // 첫 열차 발차 시각
   nowMin: number; // 지금 시각 (30초마다 갱신)
+  tick: number; // 이 값이 바뀌면 "곧 오는 열차"를 다시 불러옵니다
   onBoard: (leg: RouteLeg) => void; // 그 노선의 탑승 칸 선택으로 이동
 }) {
   if (!route || route.error || !route.legs.some((l) => l.type === "subway")) {
@@ -1968,7 +2008,7 @@ function RouteDetail({
                       <span className="vj-sub">빠른 환승: {quickTransfer(l.door)}</span>
                     )}
                     {/* 이 역에서 곧 떠나는 열차 + 지금 어디쯤 오고 있는지 */}
-                    <LegBoard leg={l} nowMin={nowMin} />
+                    <LegBoard leg={l} nowMin={nowMin} tick={tick} />
                     <span className="vj-meta">
                       {l.stationCount}개 역 이동 · {l.min}분
                     </span>
