@@ -112,7 +112,7 @@ const same = (a: string, b: string) => {
   return k(a) === k(b);
 };
 
-function parse(body: RawBody, baseMin: number): PathRoute | null {
+function parse(body: RawBody, baseMin: number, dayOffset = 0): PathRoute | null {
   const rows = body?.paths ?? [];
   if (!rows.length) return null;
 
@@ -144,7 +144,7 @@ function parse(body: RawBody, baseMin: number): PathRoute | null {
         stationID: null,
         wayCode: /하행|내선/.test(p.upbdnbSe ?? "") ? 2 : 1,
         stations: [p.dptreStn.stnNm],
-        boardMin: toMin(p.trainDptreTm, baseMin),
+        boardMin: toMin(p.trainDptreTm, baseMin) + dayOffset,
         arriveMin: NaN,
         trainNo: p.trainno ?? undefined,
         express: false,
@@ -163,7 +163,7 @@ function parse(body: RawBody, baseMin: number): PathRoute | null {
     else {
       cur.stations.push(p.arvlStn.stnNm);
       cur.end = p.arvlStn.stnNm;
-      cur.arriveMin = toMin(p.trainArvlTm, baseMin);
+      cur.arriveMin = toMin(p.trainArvlTm, baseMin) + dayOffset;
     }
   }
 
@@ -207,7 +207,9 @@ export async function findPath(
   from: string,
   to: string,
   when: Date,
-  type: PathSearchType = "duration"
+  type: PathSearchType = "duration",
+  // 내일 이후를 물어봤으면 시각에 그만큼 더해 돌려줍니다(화면이 "내일"로 표시하도록)
+  dayOffset = 0
 ): Promise<PathRoute | null> {
   const key = process.env.SEOUL_PATH_API_KEY;
   if (!key) return null;
@@ -233,7 +235,7 @@ export async function findPath(
       // 10 = 역 이름을 못 찾음, 11 = 일시 형식 오류
       return null;
     }
-    const route = parse(json.body as RawBody, baseMin);
+    const route = parse(json.body as RawBody, baseMin, dayOffset);
     // ⚠️ 이름이 비슷한 다른 역이 잡혔으면 버립니다 (예: "서울"을 물으면 엉뚱한 0분 경로가 옵니다).
     //    버리면 /api/route 가 우리 엔진으로 넘어갑니다.
     const ok =

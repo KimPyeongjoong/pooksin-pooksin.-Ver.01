@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import SchematicMap from "./SchematicMap";
 import TimetableView from "./TimetableView";
+import TimeDial from "./TimeDial";
 import LiveTrainView from "./LiveTrainView";
 import TrainStrip, { type TrainPos } from "./TrainStrip";
 import {
@@ -216,6 +217,7 @@ export default function PoogsinApp() {
   //
   // 어느 구간에 대한 시각인지 함께 담아둡니다 — 출발·도착이 바뀌면 저절로 "지금"으로 돌아갑니다.
   const [atPick, setAtPick] = useState<{ pair: string; min: number } | null>(null);
+  const [dialOpen, setDialOpen] = useState(false); // 출발 시각 다이얼 시트
   const atPair = `${dep ?? ""}|${arr ?? ""}`;
   const atMin = atPick && atPick.pair === atPair ? atPick.min : null;
   const setAtMin = (min: number) => setAtPick({ pair: atPair, min });
@@ -554,7 +556,7 @@ export default function PoogsinApp() {
     firstRideStart != null && Number.isFinite(firstRideStart) ? firstRideStart : boardAt;
   // 그 열차가 이 역 시간표에서 몇 번째인지 (선택기의 끝 판정에 씁니다)
   const shownIdx = timetable
-    ? timetable.departures.findIndex((d) => d.min === shownBoard)
+    ? timetable.departures.findIndex((d) => d.min + (shownBoard >= 1440 ? 1440 : 0) === shownBoard)
     : -1;
 
   // 이 구간 열차가 몇 량인지 (노선별로 다르고, 지선·셔틀은 더 짧습니다)
@@ -647,13 +649,15 @@ export default function PoogsinApp() {
     //    (11:00 열차를 타나 11:17 열차를 타나 환승이 같으면 11:17로 알려줍니다 — 맞는 답입니다)
     //    그래서 "한 대 앞 시각"으로 물어보면 같은 여정이 또 나와서 화면이 안 움직입니다.
     //    실제로 더 이른 열차가 나올 때까지 시간표를 거슬러 올라갑니다(최대 4대).
-    let idx = list.findIndex((d) => d.min === shownBoard);
+    // 내일 시각을 보고 있으면 시간표(오늘 기준)에도 하루를 더해 비교합니다
+    const dayBase = shownBoard >= 1440 ? 1440 : 0;
+    let idx = list.findIndex((d) => d.min + dayBase === shownBoard);
     if (idx < 0) {
       idx = 0;
-      for (let i = 0; i < list.length; i++) if (list[i].min < shownBoard) idx = i + 1;
+      for (let i = 0; i < list.length; i++) if (list[i].min + dayBase < shownBoard) idx = i + 1;
     }
     for (let k = 1; k <= 4 && idx - k >= 0; k++) {
-      const t = list[idx - k].min;
+      const t = list[idx - k].min + dayBase;
       try {
         const q = new URLSearchParams({ from: dep ?? "", to: arr ?? "", at: String(t) });
         const r = await (await fetch(`/api/route?${q}`)).json();
@@ -672,7 +676,7 @@ export default function PoogsinApp() {
     }
     if (idx > 0) {
       setDepIdx(idx - 1);
-      setAtMin(list[idx - 1].min);
+      setAtMin(list[idx - 1].min + dayBase);
     }
   }
 
@@ -838,7 +842,12 @@ export default function PoogsinApp() {
                     >
                       ‹ 이전
                     </button>
-                    <button className="mid" style={{ lineHeight: 1.25 }}>
+                    <button
+                      className="mid"
+                      style={{ lineHeight: 1.25 }}
+                      // 경로검색 화면에서만 다이얼을 엽니다 (상세 화면에서는 시각 표시만)
+                      onClick={() => stage !== "detail" && setDialOpen(true)}
+                    >
                       {ttLoading ? (
                         "시간표 확인 중…"
                       ) : (
@@ -846,6 +855,7 @@ export default function PoogsinApp() {
                           <span>
                             {shownBoard >= 1440 ? "내일 " : ""}
                             {fmtAmPm(shownBoard)}
+                            {stage !== "detail" && <em className="chev">▾</em>}
                           </span>
                           {!picked && !ttLoading && (
                             <small
@@ -1601,6 +1611,31 @@ export default function PoogsinApp() {
             )}
           </div>
         </div>
+      )}
+
+      {/* 출발 시각 다이얼 (경로검색 화면에서 시각 옆 ▾ 를 누르면) */}
+      {dialOpen && (
+        <TimeDial
+          initialMin={shownBoard}
+          nowMin={nowMin}
+          firstMin={timetable?.departures[0]?.min ?? null}
+          lastMin={timetable?.departures[timetable.departures.length - 1]?.min ?? null}
+          onClose={() => setDialOpen(false)}
+          onPick={(min) => {
+            setDialOpen(false);
+            if (min == null) {
+              // "지금 출발" — 기준 시각을 지워 지금 시각으로 되돌립니다
+              setAtPick(null);
+              setPickedByUser(false);
+              setDepIdx(null);
+              return;
+            }
+            setPickedByUser(true);
+            setAtMin(min);
+            const i = timetable?.departures.findIndex((d) => d.min >= min) ?? -1;
+            if (i >= 0) setDepIdx(i);
+          }}
+        />
       )}
 
       {toast && <div className="toast" dangerouslySetInnerHTML={{ __html: toast }} />}

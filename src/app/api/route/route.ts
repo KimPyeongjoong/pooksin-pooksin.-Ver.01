@@ -54,8 +54,13 @@ export async function GET(request: Request) {
     when.setHours(Math.floor(atMin / 60) % 24, atMin % 60, 0, 0);
     if (atMin >= 24 * 60) when.setDate(when.getDate() + 1); // 자정 넘긴 시각
   }
+  // 내일 시각을 물어봤으면(자정 기준 분이 1440 이상) 돌려주는 시각에도 그만큼 더합니다
+  const dayOffset = Number.isFinite(atMin) && atMin >= 24 * 60 ? 24 * 60 : 0;
   const api = (
-    await Promise.all([findPath(from, to, when, "duration"), findPath(from, to, when, "transfer")])
+    await Promise.all([
+      findPath(from, to, when, "duration", dayOffset),
+      findPath(from, to, when, "transfer", dayOffset),
+    ])
   ).filter((r): r is NonNullable<typeof r> => !!r);
   // 같은 경로가 두 번 나오면 하나만 남깁니다
   const seen = new Set<string>();

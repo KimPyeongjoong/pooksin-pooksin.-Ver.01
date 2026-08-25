@@ -620,3 +620,34 @@ button{font-family:inherit}
 .ride-way small{font-size:11.5px;color:var(--muted);font-weight:600}
 .ride-hint{margin-top:12px;text-align:center;font-size:11.5px;color:var(--faint);font-weight:600}
 .alight-other.bare{border-top:none;padding-top:0}
+
+/* ---- 출발 시각 다이얼 시트 (경로검색 화면) ---- */
+.timesel .mid .chev{margin-left:5px;font-size:10px;color:var(--muted);vertical-align:middle}
+.dial-back{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}
+.dial-sheet{width:100%;max-width:var(--app-w,430px);background:var(--surface);border-radius:18px 18px 0 0;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -8px 28px rgba(0,0,0,.18)}
+.dial-head{display:flex;align-items:center;justify-content:center;position:relative;padding:2px 0 14px}
+.dial-head b{font-size:16px;font-weight:750;color:var(--ink)}
+.dial-head button{position:absolute;right:0;top:0;background:none;border:none;font-size:16px;color:var(--muted);cursor:pointer;padding:2px 4px}
+.dial-tabs{display:flex;gap:7px;padding:6px 0 4px;border-top:1px solid var(--line)}
+.dial-tabs button{flex:1;background:var(--surface);border:1px solid var(--line-2);border-radius:999px;
+  padding:9px 4px;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--muted);cursor:pointer}
+.dial-tabs button.on{border-color:var(--accent);color:var(--accent);font-weight:750}
+.dial-tabs button:disabled{opacity:.45;cursor:default}
+/* 다이얼 — 가운데 띠에 걸린 값이 선택됩니다 */
+.dial-wrap{position:relative;display:flex;align-items:center;justify-content:center;gap:2px;margin:6px 0 4px}
+.dial-band{position:absolute;left:6px;right:6px;top:50%;height:38px;transform:translateY(-50%);
+  background:var(--inset);border-radius:10px;pointer-events:none}
+.dial-col{height:190px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;text-align:center;
+  -webkit-overflow-scrolling:touch}
+.dial-col::-webkit-scrollbar{display:none}
+.dial-col.dim{opacity:.35;pointer-events:none}
+.dial-item{height:38px;line-height:38px;scroll-snap-align:center;font-size:16px;font-weight:600;color:var(--faint)}
+.dial-item.on{color:var(--accent);font-weight:800}
+.dial-colon{font-size:16px;font-weight:800;color:var(--accent);padding-bottom:2px}
+.dial-note{padding:26px 6px;text-align:center;font-size:13.5px;font-weight:650;color:var(--ink)}
+.dial-btns{display:flex;gap:9px;margin-top:10px}
+.dial-btns button{flex:1;border:none;border-radius:12px;padding:14px 0;font-family:inherit;font-size:14px;font-weight:750;cursor:pointer}
+.dial-btns .ghost{background:var(--line-2);color:var(--ink)}
+.dial-btns .go{background:var(--accent);color:#fff;flex:1.2}
+.dial-btns .ghost small{display:block;font-size:10.5px;font-weight:600;color:var(--muted);margin-top:2px}
