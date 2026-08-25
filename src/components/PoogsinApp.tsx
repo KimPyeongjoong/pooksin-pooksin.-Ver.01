@@ -882,15 +882,23 @@ export default function PoogsinApp() {
                     <button className={routeTab === "fare" ? "on" : ""} onClick={() => setRouteTab("fare")}>최저요금</button>
                     <button
                       className={routeTab === "last" ? "on" : ""}
-                      onClick={() => {
+                      onClick={async () => {
+                        // 막차 = **도착지까지 갈 수 있는 마지막 경로**.
+                        // 출발역 막차를 타도 환승 열차가 끊겨 못 가는 경우가 있어서,
+                        // 서버가 "경로가 있는 가장 늦은 시각"을 찾아 알려줍니다.
                         setRouteTab("last");
-                        if (timetable && timetable.departures.length) {
-                          const lastIdx = timetable.departures.length - 1;
+                        if (!dep || !arr) return;
+                        try {
+                          const q = new URLSearchParams({ from: dep, to: arr });
+                          const r = await (await fetch(`/api/last-train?${q}`)).json();
+                          if (r.min == null) {
+                            showToast(r.reason ?? "오늘 남은 열차가 없어요");
+                            return;
+                          }
                           setPickedByUser(true);
-                          setDepIdx(lastIdx);
-                          showToast(`이 역 막차는 ${fmtAmPm(timetable.departures[lastIdx].min)}입니다`);
-                        } else {
-                          showToast("이 역의 시간표를 받지 못했어요");
+                          setAtMin(r.min);
+                        } catch {
+                          showToast("막차를 확인하지 못했어요");
                         }
                       }}
                     >
