@@ -15,7 +15,17 @@ type Props = {
   pickedSeat: string | null;
   revealed: boolean;
   onTap: (seat: Seat) => void;
+  // 지금 열차 위치 다음부터 지나갈 역들 — 하차역이 "몇 역 뒤"인지 세는 데 씁니다
+  upcoming?: string[];
 };
+
+// 그 하차역이 지금 위치에서 몇 역 뒤인지. 목록에 없으면 등록될 때 세어둔 값을 씁니다.
+function stopsAhead(state: SeatState, upcoming: string[]): number | null {
+  if (state.kind !== "occupied") return null;
+  const i = upcoming.indexOf(state.station);
+  if (i >= 0) return i + 1;
+  return state.stopsLeft > 0 ? state.stopsLeft : null;
+}
 
 // 좌석 종류(교통약자석·임산부배려석)는 누가 앉아 있든 변하지 않으므로
 // 점유 표시와 함께 계속 보여줍니다.
@@ -34,11 +44,12 @@ function SeatMark({ seat }: { seat: Seat }) {
   return null; // 일반 빈 좌석은 번호 없이 모양만
 }
 
-function Side({ blocks, seats, pickedSeat, onTap }: {
+function Side({ blocks, seats, pickedSeat, onTap, upcoming }: {
   blocks: CarLayout["left"];
   seats: Record<string, SeatState>;
   pickedSeat: string | null;
   onTap: (seat: Seat) => void;
+  upcoming: string[];
 }) {
   return (
     <div className="cd-side">
@@ -59,7 +70,15 @@ function Side({ blocks, seats, pickedSeat, onTap }: {
                   }
                 >
                   <SeatMark seat={s} />
-                  {st?.kind === "occupied" && <em className="cd-badge">{st.station}</em>}
+                  {st?.kind === "occupied" && (
+                    <em className="cd-badge">
+                      <b>{st.station}</b>
+                      {(() => {
+                        const n = stopsAhead(st, upcoming);
+                        return n ? <i>{n}역 뒤</i> : null;
+                      })()}
+                    </em>
+                  )}
                 </button>
               );
             })}
@@ -78,7 +97,7 @@ function Side({ blocks, seats, pickedSeat, onTap }: {
   );
 }
 
-export default function CarDiagram({ layout, seats, pickedSeat, revealed, onTap }: Props) {
+export default function CarDiagram({ layout, seats, pickedSeat, revealed, onTap, upcoming = [] }: Props) {
   const taken = Object.values(seats).filter((s) => s.kind === "occupied").length;
   // 통로에 놓을 진행 방향 화살표 개수 (좌석 줄 길이에 맞춰)
   const arrows = Math.max(6, layout.left.reduce((a, b) => a + b.seats.length, 0) - 3);
@@ -100,13 +119,13 @@ export default function CarDiagram({ layout, seats, pickedSeat, revealed, onTap 
 
       <div className={`cd-car${revealed ? " revealed" : ""}`}>
         <div className="cd-body">
-          <Side blocks={layout.left} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
+          <Side blocks={layout.left} seats={seats} pickedSeat={pickedSeat} onTap={onTap} upcoming={upcoming} />
           <div className="cd-aisle" aria-hidden="true">
             {Array.from({ length: arrows }, (_, i) => (
               <span className="cd-up" key={i} />
             ))}
           </div>
-          <Side blocks={layout.right} seats={seats} pickedSeat={pickedSeat} onTap={onTap} />
+          <Side blocks={layout.right} seats={seats} pickedSeat={pickedSeat} onTap={onTap} upcoming={upcoming} />
         </div>
       </div>
 

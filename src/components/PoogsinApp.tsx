@@ -1501,6 +1501,7 @@ export default function PoogsinApp() {
               pickedSeat={pickedSeat}
               revealed={revealed}
               onTap={tapSeat}
+              upcoming={legStations}
             />
 
             <div className="reveal-hint">
