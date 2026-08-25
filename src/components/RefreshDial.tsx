@@ -9,7 +9,8 @@
 //   floating: 화면 오른쪽 아래에 떠 있는 동그란 단추 (상세경로·좌석 화면)
 //   그 외    : 줄 안에 들어가는 작은 단추 (열차 선택 줄)
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePageVisible, useOnReturn } from "@/lib/visible";
 
 export default function RefreshDial({
   every = 20,
@@ -25,6 +26,10 @@ export default function RefreshDial({
   title?: string;
 }) {
   const [left, setLeft] = useState(every);
+  // 다른 탭으로 옮기거나 폰 화면이 꺼지면 초읽기를 멈춥니다.
+  // (안 보는 화면 때문에 실시간 조회 한도가 새어 나가는 걸 막습니다)
+  const visible = usePageVisible();
+  const stopped = paused || !visible;
   // 최신 콜백을 담아둡니다 (타이머를 매번 다시 걸지 않으려고)
   const cb = useRef(onRefresh);
   useEffect(() => {
@@ -32,8 +37,8 @@ export default function RefreshDial({
   }, [onRefresh]);
 
   useEffect(() => {
-    // 멈춤 상태에선 세지 않습니다 (불러봐야 같은 오류라 헛돌기만 합니다)
-    if (paused) return;
+    // 멈춤 상태에선 세지 않습니다 (안 보고 있거나, 불러봐야 같은 오류일 때)
+    if (stopped) return;
     const id = window.setInterval(() => {
       setLeft((v) => {
         if (v <= 1) {
@@ -44,13 +49,21 @@ export default function RefreshDial({
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [every, paused]);
+  }, [every, stopped]);
+
+  // 화면으로 돌아오면 그 즉시 한 번 새로 받고 초읽기를 처음으로 되돌립니다
+  const onReturn = useCallback(() => {
+    if (paused) return;
+    cb.current();
+    setLeft(every);
+  }, [paused, every]);
+  useOnReturn(onReturn);
 
   return (
     <button
       className={`rfd${floating ? " float" : ""}`}
       title={title}
-      aria-label={paused ? title : `${title} (자동 ${left}초 뒤)`}
+      aria-label={stopped ? title : `${title} (자동 ${left}초 뒤)`}
       onClick={() => {
         cb.current();
         setLeft(every);
@@ -68,7 +81,7 @@ export default function RefreshDial({
         />
         <polygon points="13.2,6.3 11.1,14.0 5.5,8.4" fill="currentColor" />
       </svg>
-      {!paused && <b className="rfd-num">{left}</b>}
+      {!stopped && <b className="rfd-num">{left}</b>}
     </button>
   );
 }

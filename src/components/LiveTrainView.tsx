@@ -56,8 +56,17 @@ export default function LiveTrainView({ station, line, onClose, onStationClick }
   // 20초마다 자동 갱신
   useEffect(() => {
     load();
-    const id = window.setInterval(load, 20_000);
-    return () => window.clearInterval(id);
+    // 화면을 안 보고 있을 땐 부르지 않습니다 (실시간 조회 한도를 아낍니다)
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 20_000);
+    // 돌아오면 그 즉시 다시 받습니다
+    const onVis = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [load]);
 
   const stations = useMemo(() => lineStations(curLine), [curLine]);

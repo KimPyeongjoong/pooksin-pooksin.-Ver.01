@@ -1889,11 +1889,21 @@ function LegBoard({ leg, nowMin, tick = 0 }: { leg: RouteLeg; nowMin: number; ti
         .finally(() => alive && setLoading(false));
     };
     load();
-    // 20초마다 다시 받습니다 (서버가 15초 캐시를 쓰므로 서울시 API 호출량은 늘지 않습니다)
-    const id = window.setInterval(load, 20_000);
+    // 20초마다 다시 받습니다.
+    //
+    // ⚠️ 이 화면은 지하철 구간 하나당 2건(노선 열차위치 + 그 역 도착정보)이 나갑니다.
+    //    환승 2회 경로면 20초마다 6건 = 시간당 1,080건이라, 켜둔 채 잊으면
+    //    그것만으로 하루 한도(1,000건)가 찹니다.
+    //    그래서 화면을 안 보고 있을 땐 아예 부르지 않고, 돌아오면 그때 다시 받습니다.
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 20_000);
+    const onVis = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, [start, end, line, wayCode, tick]);
 
