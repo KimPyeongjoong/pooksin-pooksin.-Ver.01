@@ -643,6 +643,16 @@ export default function PoogsinApp() {
   //    경로가 바뀌면 그 번호가 초기화돼서, 이전을 눌렀는데 다음으로 가거나
   //    아무 일도 안 일어나는 것처럼 보였습니다.
   //    지금은 화면에 찍힌 승차 시각(shownBoard)이 시간표에서 몇 번째인지 매번 다시 찾습니다.
+  // 최단시간 / 최소환승 / 최저요금 탭을 누르면 **지금 시각 기준으로 다시 찾습니다.**
+  // (막차를 본 뒤에 다른 탭을 눌렀는데 막차 시각 그대로면 아무 반응이 없는 것처럼 보입니다)
+  function selectTab(t: RouteTab) {
+    setRouteTab(t);
+    if (atMin == null) return; // 이미 지금 기준이면 그대로 (탭만 바뀝니다)
+    setAtPick(null);
+    setPickedByUser(false);
+    setDepIdx(null);
+  }
+
   async function stepTrain(delta: number) {
     const list = timetable?.departures ?? [];
     if (!list.length) {
@@ -661,7 +671,7 @@ export default function PoogsinApp() {
       return;
     }
 
-    setSeeking(true); // 아래에서 서버에 몇 번 물어보므로 그동안 화면에 알려줍니다
+    setSeeking(true); // 서버에 몇 번 물어보므로 그동안 화면에 알려줍니다
     // ‹ 이전 — 여기가 까다롭습니다.
     //
     // ⚠️ 경로검색 API는 **도착이 같으면 늦게 출발하는 쪽**을 답합니다.
@@ -901,9 +911,9 @@ export default function PoogsinApp() {
                 )}
                 {dep && arr && stage !== "detail" && (
                   <div className="tabs" style={{ marginTop: 8, borderTop: "1px solid var(--line-2)", borderRadius: 12 }}>
-                    <button className={routeTab === "time" ? "on" : ""} onClick={() => setRouteTab("time")}>최단시간</button>
-                    <button className={routeTab === "transfer" ? "on" : ""} onClick={() => setRouteTab("transfer")}>최소환승</button>
-                    <button className={routeTab === "fare" ? "on" : ""} onClick={() => setRouteTab("fare")}>최저요금</button>
+                    <button className={routeTab === "time" ? "on" : ""} onClick={() => selectTab("time")}>최단시간</button>
+                    <button className={routeTab === "transfer" ? "on" : ""} onClick={() => selectTab("transfer")}>최소환승</button>
+                    <button className={routeTab === "fare" ? "on" : ""} onClick={() => selectTab("fare")}>최저요금</button>
                     <button
                       className={routeTab === "last" ? "on" : ""}
                       onClick={async () => {
