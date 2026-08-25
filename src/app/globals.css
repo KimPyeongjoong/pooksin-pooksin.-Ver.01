@@ -636,15 +636,18 @@ button{font-family:inherit}
 .dial-tabs button:disabled{opacity:.45;cursor:default}
 /* 다이얼 — 가운데 띠에 걸린 값이 선택됩니다 */
 .dial-wrap{position:relative;display:flex;align-items:center;justify-content:center;gap:2px;margin:6px 0 4px}
+/* ⚠️ 가운데 회색 띠는 **글자 뒤**에 있어야 합니다.
+   자리를 잡은(position) 요소가 그렇지 않은 요소보다 위에 그려지기 때문에,
+   띠는 z-index:0 으로 내리고 다이얼 칸을 z-index:1 로 올립니다. */
 .dial-band{position:absolute;left:6px;right:6px;top:50%;height:38px;transform:translateY(-50%);
-  background:var(--inset);border-radius:10px;pointer-events:none}
-.dial-col{height:190px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;text-align:center;
+  background:var(--inset);border-radius:10px;pointer-events:none;z-index:0}
+.dial-col{position:relative;z-index:1;height:190px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;text-align:center;
   -webkit-overflow-scrolling:touch}
 .dial-col::-webkit-scrollbar{display:none}
 .dial-col.dim{opacity:.35;pointer-events:none}
 .dial-item{height:38px;line-height:38px;scroll-snap-align:center;font-size:16px;font-weight:600;color:var(--faint)}
 .dial-item.on{color:var(--accent);font-weight:800}
-.dial-colon{font-size:16px;font-weight:800;color:var(--accent);padding-bottom:2px}
+.dial-colon{position:relative;z-index:1;font-size:16px;font-weight:800;color:var(--accent);padding-bottom:2px}
 .dial-note{padding:26px 6px;text-align:center;font-size:13.5px;font-weight:650;color:var(--ink)}
 .dial-btns{display:flex;gap:9px;margin-top:10px}
 .dial-btns button{flex:1;border:none;border-radius:12px;padding:14px 0;font-family:inherit;font-size:14px;font-weight:750;cursor:pointer}
