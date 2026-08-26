@@ -51,10 +51,12 @@ const WALK = (
   walkJson as { stations: Record<string, Record<string, Record<string, { sec: number; m: number | null }>>> }
 ).stations;
 
-// 레일포털(KRIC) "역사별 환승정보"로 채운 값.
+// 레일포털(KRIC) "역사별 환승정보"로 채우려던 자리 — **지금은 비어 있습니다.**
 // 위 둘은 서울교통공사 자료라 **양쪽 다 서울교통공사가 아닌 환승**(회기·용산·부평·김포공항 등)이 비는데,
-// 이건 전국 철도운영기관을 덮습니다. 환승거리를 같은 기준(1.2m/s)으로 시간으로 바꿔 넣습니다.
-// (scripts/build-transfers-kric.mjs · 레일포털 키가 있어야 채워집니다. 없으면 빈 파일)
+// 레일포털은 전국 철도운영기관을 덮어서 환승거리를 같은 기준(1.2m/s)으로 환산하려 했습니다.
+// 그런데 레일포털의 환승거리 항목(chtnDst)이 **전국 1049행 전부 null** 이었습니다 (2026-08-26 전수 확인).
+// 그래서 그 환승들은 계속 아래 EXTRA 나 3분 상수로 갑니다.
+// (사정과 알아낸 API 사용법은 scripts/build-transfers-kric.mjs 맨 위 주석에)
 const KRIC = (
   kricJson as { stations: Record<string, Record<string, Record<string, { sec: number; m: number | null }>>> }
 ).stations;

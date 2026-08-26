@@ -1,1 +1,1 @@
-{"built":"","source":"KRIC 역사별 환승정보 (아직 안 받음 — .env.local 에 KRIC_API_KEY 를 넣고 scripts/build-transfers-kric.mjs 를 실행하세요)","stations":{},"coords":{}}
+{"built":"","source":"비어 있음 — 레일포털 환승거리(chtnDst)가 전국 1049행 전부 null 이라 채울 수 없었습니다 (2026-08-26 전수 확인). 사정은 scripts/build-transfers-kric.mjs 맨 위 주석 참고.","stations":{},"coords":{}}
